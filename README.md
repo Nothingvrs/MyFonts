@@ -1,69 +1,90 @@
-# React + TypeScript + Vite
+# 🔤 MyFonts - Определение шрифтов по изображениям
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Сервис для автоматического определения кириллических шрифтов по скриншотам.
 
-Currently, two official plugins are available:
+## ✨ Особенности
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- 🖼️ **Загрузка изображений** - Drag & Drop интерфейс
+- 🔍 **Анализ OpenCV** - Компьютерное зрение для анализа характеристик шрифтов
+- 🇷🇺 **Кириллические шрифты** - Специализация на русских шрифтах
+- 🎯 **Топ-10 совпадений** - Ранжированные результаты по схожести
+- ⚡ **Быстрый анализ** - Результат за секунды
 
-## Expanding the ESLint configuration
+## 🚀 Быстрый запуск
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Простой способ:
 
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm start
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Или через batch файл:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+start.bat
 ```
+
+### Ручной запуск:
+
+```bash
+# Фронтенд (порт 5173)
+npm run dev
+
+# Бэкенд (порт 8000)
+npm run backend
+```
+
+## 📋 Требования
+
+- **Node.js** 20+
+- **Python** 3.8+
+- **pip** для установки Python зависимостей
+
+## 🛠️ Первичная настройка
+
+1. **Установка зависимостей фронтенда:**
+
+   ```bash
+   npm install
+   ```
+
+2. **Установка зависимостей бэкенда:**
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   ```
+
+## 🌐 Доступ к приложению
+
+- **Фронтенд:** http://localhost:5173
+- **Бэкенд API:** http://localhost:8000
+- **API документация:** http://localhost:8000/docs
+
+## 🏗️ Архитектура
+
+```
+MyFonts/
+├── 📁 frontend/          # React + TypeScript + Vite
+│   ├── src/components/   # UI компоненты
+│   └── src/services/     # API клиент
+├── 📁 backend/           # Python + FastAPI
+│   ├── app/services/     # OpenCV анализ шрифтов
+│   ├── app/models/       # Pydantic модели
+│   └── app/database/     # База данных шрифтов
+```
+
+## 🔧 Технологии
+
+**Фронтенд:**
+
+- React 19 + TypeScript
+- TailwindCSS для стилей
+- React-Dropzone для загрузки
+- Vite для сборки
+
+**Бэкенд:**
+
+- FastAPI (Python)
+- OpenCV для анализа изображений
+- PIL/Pillow для обработки
+- NumPy для вычислений

@@ -1,68 +1,44 @@
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+@import 'tailwindcss';
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+@layer base {
+	* {
+		box-sizing: border-box;
+	}
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+	body {
+		margin: 0;
+		font-family: system-ui, -apple-system, sans-serif;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+	html {
+		scroll-behavior: smooth;
+	}
 }
 
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
+@layer components {
+	.btn-primary {
+		@apply bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 shadow-md hover:shadow-lg;
+	}
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
+	.btn-secondary {
+		@apply bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-3 px-6 rounded-lg border border-gray-300 transition-colors duration-200;
+	}
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
+	.card {
+		@apply bg-white rounded-xl shadow-lg p-6 transition-all duration-200;
+	}
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+	.gradient-bg {
+		@apply bg-gradient-to-br from-blue-500 via-purple-500 to-purple-600;
+	}
+
+	.dropzone {
+		@apply border-2 border-dashed border-gray-300 rounded-xl p-12 lg:p-16 xl:p-20 text-center cursor-pointer transition-all duration-300 bg-gray-50 hover:border-blue-400 hover:bg-blue-50 min-h-[300px] lg:min-h-[400px] flex items-center justify-center;
+	}
+
+	.dropzone--active {
+		@apply border-blue-400 bg-blue-50 scale-105;
+	}
 }

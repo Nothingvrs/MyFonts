@@ -29,20 +29,32 @@ class FontMatcher:
             'spacing': 0.1         # Важность интервалов
         }
     
-    def find_matches(self, characteristics: FontCharacteristics, max_results: int = 10) -> List[FontMatch]:
+    async def find_matches(self, characteristics: FontCharacteristics, max_results: int = 10) -> List[FontMatch]:
         """
-        Поиск наиболее похожих шрифтов
+        Поиск наиболее похожих шрифтов с динамическим доступом ко всем Google Fonts
         """
         try:
-            # Получаем все шрифты из базы данных
-            all_fonts = self.font_database.get_all_fonts_sync()
+            logger.info("🔍 Начинаем поиск совпадений с полной базой...")
+            
+            # Получаем локальные шрифты (быстро)
+            local_fonts = self.font_database.fonts.copy()
+            
+            # Получаем ВСЕ Google Fonts динамически (медленнее, но полный охват)
+            google_fonts = await self.font_database.google_fonts_service.get_all_fonts_for_matching()
+            
+            # Объединяем все источники
+            all_fonts = local_fonts + google_fonts
             
             if not all_fonts:
                 logger.warning("База данных шрифтов пуста")
                 return []
             
+            logger.info(f"📊 Анализируем {len(all_fonts)} шрифтов ({len(local_fonts)} локальных + {len(google_fonts)} Google Fonts)")
+            
             # Вычисляем совпадения для каждого шрифта
             matches = []
+            processed = 0
+            
             for font in all_fonts:
                 try:
                     confidence = self._calculate_match(characteristics, font.characteristics)
@@ -54,6 +66,12 @@ class FontMatcher:
                         match_details=match_details
                     ))
                     
+                    processed += 1
+                    
+                    # Логируем прогресс каждые 500 шрифтов
+                    if processed % 500 == 0:
+                        logger.info(f"⏳ Обработано {processed}/{len(all_fonts)} шрифтов...")
+                    
                 except Exception as e:
                     logger.error(f"Ошибка при сопоставлении шрифта {font.name}: {str(e)}")
                     continue
@@ -64,7 +82,28 @@ class FontMatcher:
             # Возвращаем топ результатов
             result = matches[:max_results]
             
-            logger.info(f"Найдено {len(result)} совпадений из {len(all_fonts)} шрифтов")
+            logger.info(f"✅ Найдено {len(result)} лучших совпадений из {len(all_fonts)} шрифтов")
+            
+            # Логируем топ-3 результата для отладки
+            for i, match in enumerate(result[:3], 1):
+                logger.info(f"  {i}. {match.font_info.name} - {match.confidence:.1%}")
+            
+            # ОТЛАДКА: Логируем анализируемые характеристики
+            logger.info(f"🔍 АНАЛИЗИРУЕМЫЕ ХАРАКТЕРИСТИКИ:")
+            logger.info(f"  - Засечки: {characteristics.has_serifs}")
+            logger.info(f"  - Толщина: {characteristics.stroke_width:.3f}")
+            logger.info(f"  - Контраст: {characteristics.contrast:.3f}")
+            logger.info(f"  - Наклон: {characteristics.slant:.3f}")
+            
+            # ОТЛАДКА: Логируем первые 3 шрифта из базы
+            logger.info(f"🔍 ПЕРВЫЕ 3 ШРИФТА ИЗ БАЗЫ:")
+            for i, font in enumerate(all_fonts[:3], 1):
+                logger.info(f"  {i}. {font.name}:")
+                logger.info(f"     - Засечки: {font.characteristics.has_serifs}")
+                logger.info(f"     - Толщина: {font.characteristics.stroke_width:.3f}")
+                logger.info(f"     - Контраст: {font.characteristics.contrast:.3f}")
+                logger.info(f"     - Наклон: {font.characteristics.slant:.3f}")
+            
             return result
             
         except Exception as e:

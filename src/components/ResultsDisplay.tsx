@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 
 interface FontMatch {
 	name: string
@@ -35,6 +35,32 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 	results,
 	errorMessage,
 }) => {
+	// Функция для загрузки шрифтов из Google Fonts
+	const loadGoogleFonts = (fontNames: string[]) => {
+		// Удаляем существующие ссылки на шрифты
+		const existingLinks = document.querySelectorAll('link[data-font-loader]')
+		existingLinks.forEach(link => link.remove())
+
+		if (fontNames.length === 0) return
+
+		// Формируем URL для Google Fonts API
+		const fontQuery = fontNames.map(name => name.replace(/\s+/g, '+')).join('|')
+
+		const link = document.createElement('link')
+		link.href = `https://fonts.googleapis.com/css2?family=${fontQuery}&display=swap`
+		link.rel = 'stylesheet'
+		link.setAttribute('data-font-loader', 'true')
+		document.head.appendChild(link)
+	}
+
+	// Загружаем шрифты при изменении результатов
+	useEffect(() => {
+		if (results.length > 0) {
+			const fontNames = results.map(result => result.name)
+			loadGoogleFonts(fontNames)
+		}
+	}, [results])
+
 	const getConfidenceColor = (confidence: number): string => {
 		if (confidence >= 0.8) return '#28a745' // Зеленый
 		if (confidence >= 0.6) return '#ffc107' // Желтый
@@ -58,23 +84,44 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 			errorMessage.includes('множественные') ||
 			errorMessage.toLowerCase().includes('multiple')
 
+		const isNoText =
+			errorMessage.includes('не обнаружен текст') ||
+			errorMessage.includes('не найден текст') ||
+			errorMessage.toLowerCase().includes('no text')
+
+		const isOcrError =
+			errorMessage.includes('распознавания текста') ||
+			errorMessage.toLowerCase().includes('ocr')
+
 		return (
 			<div className='my-8'>
 				<div className='card p-8 text-center'>
 					<div
 						className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 ${
-							isMultipleFonts ? 'bg-orange-100' : 'bg-red-100'
+							isMultipleFonts
+								? 'bg-orange-100'
+								: isOcrError
+								? 'bg-yellow-100'
+								: 'bg-red-100'
 						}`}
 					>
-						<span className='text-3xl'>{isMultipleFonts ? '🔤' : '⚠️'}</span>
+						<span className='text-3xl'>
+							{isMultipleFonts ? '🔤' : isOcrError ? '🔧' : '⚠️'}
+						</span>
 					</div>
 					<h3
 						className={`text-xl font-semibold mb-2 ${
-							isMultipleFonts ? 'text-orange-600' : 'text-red-600'
+							isMultipleFonts
+								? 'text-orange-600'
+								: isOcrError
+								? 'text-yellow-600'
+								: 'text-red-600'
 						}`}
 					>
 						{isMultipleFonts
 							? 'Обнаружено несколько шрифтов'
+							: isOcrError
+							? 'Ошибка распознавания'
 							: 'Текст не обнаружен'}
 					</h3>
 					<p className='text-gray-600 mb-4'>{errorMessage}</p>
@@ -86,6 +133,13 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 								<li>• Используйте изображение с однородным текстом</li>
 								<li>• Избегайте заголовков с разными шрифтами</li>
 								<li>• Загрузите отдельные изображения для каждого шрифта</li>
+							</ul>
+						) : isOcrError ? (
+							<ul className='text-sm text-blue-700 space-y-1'>
+								<li>• Попробуйте другое изображение</li>
+								<li>• Убедитесь, что изображение не повреждено</li>
+								<li>• Используйте изображения в формате PNG или JPG</li>
+								<li>• Проверьте, что изображение содержит текст</li>
 							</ul>
 						) : (
 							<ul className='text-sm text-blue-700 space-y-1'>
@@ -145,7 +199,7 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 				{results.map((result, index) => (
 					<div
 						key={result.font_info?.id || index}
-						className='card hover:shadow-xl transition-all duration-300 hover:-translate-y-1'
+						className='font-card hover:shadow-xl transition-all duration-300 hover:-translate-y-1'
 					>
 						<div className='flex items-center gap-3 mb-4'>
 							<span className='bg-blue-500 text-white text-sm font-bold px-3 py-1 rounded-full'>
@@ -213,24 +267,75 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 							</div>
 						</div>
 
-						{result.preview && (
-							<div className='bg-gray-50 rounded-lg p-4 mb-4 text-center'>
-								<p
-									className='text-lg text-gray-800'
-									style={{ fontFamily: result.name }}
-								>
-									Пример текста на русском языке
-								</p>
+						<div className='bg-gray-50 rounded-lg p-4 mb-4 text-center'>
+							<p className='text-sm text-gray-600 mb-2'>Пример кириллицы:</p>
+							<div
+								className='font-preview text-lg text-gray-800 leading-tight'
+								style={{ fontFamily: `'${result.name}', serif` }}
+								title='АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя'
+							>
+								АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ
 							</div>
-						)}
+						</div>
 
-						<div className='flex gap-2'>
-							<button className='btn-primary flex-1 text-sm py-2'>
-								Подробнее
-							</button>
-							<button className='btn-secondary flex-1 text-sm py-2'>
-								Скачать
-							</button>
+						<div className='space-y-2'>
+							<div className='flex gap-2'>
+								<a
+									href={`https://fonts.google.com/specimen/${result.name.replace(
+										/\s+/g,
+										'+'
+									)}`}
+									target='_blank'
+									rel='noopener noreferrer'
+									className='btn-primary flex-1 text-sm py-2 text-center no-underline hover:no-underline'
+								>
+									Google Fonts
+								</a>
+								<a
+									href={`https://fonts.adobe.com/fonts/${result.name
+										.toLowerCase()
+										.replace(/\s+/g, '-')}`}
+									target='_blank'
+									rel='noopener noreferrer'
+									className='btn-secondary flex-1 text-sm py-2 text-center no-underline hover:no-underline'
+								>
+									Adobe Fonts
+								</a>
+							</div>
+							<div className='flex gap-2'>
+								<a
+									href={`https://www.fontsquirrel.com/fonts/${result.name
+										.toLowerCase()
+										.replace(/\s+/g, '-')}`}
+									target='_blank'
+									rel='noopener noreferrer'
+									className='btn-secondary flex-1 text-xs py-1.5 text-center no-underline hover:no-underline'
+								>
+									Font Squirrel
+								</a>
+								<a
+									href={`https://www.dafont.com/search.php?q=${result.name.replace(
+										/\s+/g,
+										'+'
+									)}`}
+									target='_blank'
+									rel='noopener noreferrer'
+									className='btn-secondary flex-1 text-xs py-1.5 text-center no-underline hover:no-underline'
+								>
+									DaFont
+								</a>
+								<a
+									href={`https://www.myfonts.com/search/${result.name.replace(
+										/\s+/g,
+										'+'
+									)}/fonts/`}
+									target='_blank'
+									rel='noopener noreferrer'
+									className='btn-secondary flex-1 text-xs py-1.5 text-center no-underline hover:no-underline'
+								>
+									MyFonts
+								</a>
+							</div>
 						</div>
 					</div>
 				))}

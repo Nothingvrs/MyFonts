@@ -27,7 +27,15 @@
 	}
 
 	.card {
-		@apply bg-white rounded-xl shadow-lg p-6 transition-all duration-200;
+		@apply bg-white rounded-xl shadow-lg p-6 transition-all duration-200 overflow-hidden;
+	}
+
+	.font-card {
+		@apply bg-white rounded-xl shadow-lg p-6 transition-all duration-200 overflow-hidden max-w-sm;
+	}
+
+	.font-preview {
+		@apply text-sm overflow-hidden text-ellipsis whitespace-nowrap max-w-full;
 	}
 
 	.gradient-bg {

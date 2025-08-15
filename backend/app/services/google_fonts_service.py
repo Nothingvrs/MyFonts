@@ -25,6 +25,8 @@ class GoogleFontsService:
         self.cache_duration = timedelta(hours=24)  # Кэш на 24 часа
         self._fonts_cache: List[Dict] = []
         self._last_update: Optional[datetime] = None
+        self._all_fonts_cache: List[FontInfo] = []  # Кэш для всех конвертированных шрифтов
+        self._all_fonts_cache_time: Optional[datetime] = None
     
     async def get_fonts(self, force_refresh: bool = False) -> List[Dict]:
         """Получение списка шрифтов из Google Fonts"""
@@ -255,24 +257,43 @@ class GoogleFontsService:
         
         chars = base_chars.get(category, base_chars[FontCategory.SANS_SERIF]).copy()
         
-        # Генерируем кириллические характеристики
+        # Добавляем вариацию на основе названия шрифта
+        font_name = google_font.get("family", "")
+        name_hash = hash(font_name) % 1000  # Получаем стабильный хеш от 0 до 999
+        
+        # Добавляем небольшую вариацию к каждой характеристике
+        variation = (name_hash / 1000.0 - 0.5) * 0.3  # От -0.15 до +0.15
+        
+        # Применяем вариацию к числовым характеристикам
+        chars["stroke_width"] = max(0.05, min(1.0, chars["stroke_width"] + variation * 0.2))
+        chars["contrast"] = max(0.0, min(1.0, chars["contrast"] + variation * 0.4))
+        chars["slant"] = max(-45.0, min(45.0, chars["slant"] + variation * 10))
+        chars["x_height"] = max(20.0, chars["x_height"] + variation * 15)
+        chars["cap_height"] = max(30.0, chars["cap_height"] + variation * 10)
+        chars["ascender"] = max(40.0, chars["ascender"] + variation * 8)
+        chars["descender"] = max(5.0, chars["descender"] + variation * 5)
+        chars["letter_spacing"] = max(0.0, chars["letter_spacing"] + variation * 1.0)
+        chars["word_spacing"] = max(2.0, chars["word_spacing"] + variation * 2.0)
+        chars["density"] = max(0.1, min(1.0, chars["density"] + variation * 0.2))
+        
+        # Генерируем кириллические характеристики с вариацией
         if cyrillic_support:
-            # Хорошая поддержка кириллицы
+            # Хорошая поддержка кириллицы + вариация
             cyrillic_features = CyrillicFeatures(
-                ya_shape=0.85,
-                zh_shape=0.85,
-                fi_shape=0.85,
-                shcha_shape=0.9,
-                yery_shape=0.85
+                ya_shape=max(0.0, min(1.0, 0.85 + variation * 0.2)),
+                zh_shape=max(0.0, min(1.0, 0.85 + variation * 0.2)),
+                fi_shape=max(0.0, min(1.0, 0.85 + variation * 0.2)),
+                shcha_shape=max(0.0, min(1.0, 0.9 + variation * 0.15)),
+                yery_shape=max(0.0, min(1.0, 0.85 + variation * 0.2))
             )
         else:
-            # Слабая или отсутствующая поддержка
+            # Слабая или отсутствующая поддержка + вариация
             cyrillic_features = CyrillicFeatures(
-                ya_shape=0.5,
-                zh_shape=0.5,
-                fi_shape=0.5,
-                shcha_shape=0.5,
-                yery_shape=0.5
+                ya_shape=max(0.0, min(1.0, 0.5 + variation * 0.3)),
+                zh_shape=max(0.0, min(1.0, 0.5 + variation * 0.3)),
+                fi_shape=max(0.0, min(1.0, 0.5 + variation * 0.3)),
+                shcha_shape=max(0.0, min(1.0, 0.5 + variation * 0.3)),
+                yery_shape=max(0.0, min(1.0, 0.5 + variation * 0.3))
             )
         
         return FontCharacteristics(
@@ -281,7 +302,7 @@ class GoogleFontsService:
         )
     
     async def search_fonts(self, query: str, limit: int = 50) -> List[FontInfo]:
-        """Поиск шрифтов по названию"""
+        """Поиск шрифтов по названию во всей базе Google Fonts"""
         try:
             google_fonts = await self.get_fonts()
             query_lower = query.lower()
@@ -305,6 +326,53 @@ class GoogleFontsService:
         except Exception as e:
             logger.error(f"Ошибка поиска Google Fonts: {str(e)}")
             return []
+    
+    async def get_all_fonts_for_matching(self) -> List[FontInfo]:
+        """Получение ВСЕХ Google Fonts для сопоставления шрифтов (с кэшированием)"""
+        try:
+            # Проверяем кэш конвертированных шрифтов
+            if (self._all_fonts_cache and 
+                self._all_fonts_cache_time and 
+                datetime.now() - self._all_fonts_cache_time < self.cache_duration):
+                logger.info(f"📋 Используем кэшированные {len(self._all_fonts_cache)} конвертированных Google Fonts")
+                return self._all_fonts_cache
+            
+            logger.info("🔍 Загружаем и конвертируем ВСЕ Google Fonts для сопоставления...")
+            google_fonts = await self.get_fonts()
+            
+            results = []
+            font_id = 10000
+            
+            # Конвертируем ТОЛЬКО кириллические шрифты (оптимизация для нашего сервиса)
+            total = len(google_fonts)
+            cyrillic_count = 0
+            
+            for i, font_data in enumerate(google_fonts):
+                # Проверяем поддержку кириллицы
+                subsets = font_data.get('subsets', [])
+                has_cyrillic = any(subset in ['cyrillic', 'cyrillic-ext'] for subset in subsets)
+                
+                if has_cyrillic:  # ТОЛЬКО кириллические шрифты!
+                    font_info = self.convert_to_font_info(font_data, font_id)
+                    if font_info:
+                        results.append(font_info)
+                        font_id += 1
+                        cyrillic_count += 1
+                
+                # Логируем прогресс каждые 500 шрифтов
+                if (i + 1) % 500 == 0:
+                    logger.info(f"🇷🇺 Обработано {i + 1}/{total} шрифтов, найдено {cyrillic_count} кириллических")
+            
+            # Кэшируем результат
+            self._all_fonts_cache = results
+            self._all_fonts_cache_time = datetime.now()
+            
+            logger.info(f"✅ Конвертировано и закэшировано {len(results)} Google Fonts для сопоставления")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения всех Google Fonts: {str(e)}")
+            return self._all_fonts_cache if self._all_fonts_cache else []
     
     async def get_popular_fonts(self, limit: int = 100) -> List[FontInfo]:
         """Получение популярных шрифтов"""

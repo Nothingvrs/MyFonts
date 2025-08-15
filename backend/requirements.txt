@@ -13,4 +13,7 @@ aiohttp==3.9.1
 pydantic==2.5.0
 scikit-learn==1.3.2
 scipy==1.11.4
+# Обновляем до последних версий согласно документации
+paddlepaddle>=2.6.0
+paddleocr>=2.8.0
 

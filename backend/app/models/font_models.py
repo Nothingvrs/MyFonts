@@ -19,11 +19,11 @@ class FontCategory(str, Enum):
 
 class CyrillicFeatures(BaseModel):
     """Характеристики кириллических букв"""
-    ya_shape: float = Field(..., ge=0.0, le=1.0, description="Форма буквы Я")
-    zh_shape: float = Field(..., ge=0.0, le=1.0, description="Форма буквы Ж")
-    fi_shape: float = Field(..., ge=0.0, le=1.0, description="Форма буквы Ф")
-    shcha_shape: float = Field(..., ge=0.0, le=1.0, description="Форма буквы Щ")
-    yery_shape: float = Field(..., ge=0.0, le=1.0, description="Форма буквы Ы")
+    ya_shape: float = Field(0.5, ge=0.0, le=1.0, description="Форма буквы Я")
+    zh_shape: float = Field(0.5, ge=0.0, le=1.0, description="Форма буквы Ж")
+    fi_shape: float = Field(0.5, ge=0.0, le=1.0, description="Форма буквы Ф")
+    shcha_shape: float = Field(0.5, ge=0.0, le=1.0, description="Форма буквы Щ")
+    yery_shape: float = Field(0.5, ge=0.0, le=1.0, description="Форма буквы Ы")
 
 
 class FontCharacteristics(BaseModel):

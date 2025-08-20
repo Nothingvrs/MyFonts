@@ -76,10 +76,149 @@ async def root():
 @app.get("/api/health")
 async def health_check():
     """Проверка здоровья API"""
-    return {
-        "status": "healthy",
-        "message": "API работает нормально"
-    }
+    try:
+        # Проверяем статус PaddleOCR
+        paddleocr_status = "available" if font_analyzer.paddleocr_service.is_available() else "unavailable"
+        
+        # Проверяем базу данных
+        db_status = "available"
+        try:
+            await font_database.get_fonts(limit=1)
+        except:
+            db_status = "unavailable"
+        
+        overall_status = "healthy" if paddleocr_status == "available" and db_status == "available" else "degraded"
+        
+        return {
+            "status": overall_status,
+            "message": "API работает" if overall_status == "healthy" else "API работает с ограничениями",
+            "services": {
+                "paddleocr": paddleocr_status,
+                "database": db_status
+            },
+            "paddleocr_available": paddleocr_status == "available"
+        }
+    except Exception as e:
+        logger.error(f"Ошибка health check: {str(e)}")
+        return {
+            "status": "unhealthy",
+            "message": "API недоступен",
+            "error": str(e)
+        }
+
+
+@app.get("/api/paddleocr-status")
+async def paddleocr_status():
+    """Проверка статуса PaddleOCR"""
+    try:
+        is_available = font_analyzer.paddleocr_service.is_available()
+        
+        if is_available:
+            return {
+                "status": "available",
+                "message": "PaddleOCR доступен и готов к работе",
+                "can_analyze": True
+            }
+        else:
+            return {
+                "status": "unavailable",
+                "message": "PaddleOCR недоступен - анализ шрифтов невозможен",
+                "can_analyze": False,
+                "suggestion": "Попробуйте позже или обратитесь к администратору"
+            }
+    except Exception as e:
+        logger.error(f"Ошибка проверки статуса PaddleOCR: {str(e)}")
+        return {
+            "status": "error",
+            "message": "Ошибка проверки статуса PaddleOCR",
+            "can_analyze": False,
+            "error": str(e)
+        }
+
+
+@app.post("/api/paddleocr-reinit")
+async def paddleocr_reinit():
+    """Принудительная переинициализация PaddleOCR"""
+    try:
+        logger.info("🔄 Принудительная переинициализация PaddleOCR...")
+        
+        # Переинициализируем PaddleOCR
+        success = font_analyzer.paddleocr_service.reinitialize()
+        
+        if success:
+            return {
+                "success": True,
+                "message": "PaddleOCR успешно переинициализирован",
+                "status": "available"
+            }
+        else:
+            return {
+                "success": False,
+                "message": "PaddleOCR не удалось переинициализировать",
+                "status": "unavailable"
+            }
+    except Exception as e:
+        logger.error(f"Ошибка переинициализации PaddleOCR: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Ошибка переинициализации: {str(e)}",
+            "status": "error"
+        }
+
+
+@app.post("/api/paddleocr-test")
+async def paddleocr_test(file: UploadFile = File(...)):
+    """Тестирование PaddleOCR на конкретном изображении"""
+    try:
+        logger.info("🧪 Тестирование PaddleOCR на изображении...")
+        
+        # Проверяем тип файла
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=400,
+                detail="Файл должен быть изображением"
+            )
+        
+        # Читаем содержимое файла
+        contents = await file.read()
+        logger.info(f"📁 Получен файл: {file.filename}, размер: {len(contents)} байт")
+        
+        # Загружаем изображение
+        import cv2
+        import numpy as np
+        from PIL import Image
+        import io
+        
+        # Конвертируем bytes в numpy array
+        image = Image.open(io.BytesIO(contents))
+        image_np = np.array(image)
+        
+        if len(image_np.shape) == 3:
+            image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+        
+        logger.info(f"🖼️ Изображение загружено: {image_np.shape}")
+        
+        # Тестируем PaddleOCR
+        result = await font_analyzer.paddleocr_service.detect_and_analyze_text(image_np)
+        
+        return {
+            "success": True,
+            "message": "Тест PaddleOCR завершен",
+            "result": result,
+            "image_info": {
+                "shape": image_np.shape,
+                "filename": file.filename,
+                "size_bytes": len(contents)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Ошибка тестирования PaddleOCR: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Ошибка тестирования: {str(e)}",
+            "error": str(e)
+        }
 
 
 @app.post("/api/refresh-fonts")
@@ -173,6 +312,24 @@ async def analyze_font(file: UploadFile = File(...)):
                 message="OCR не смог найти текст на изображении. Попробуйте загрузить изображение с более четким текстом.",
                 matches=[],
                 error="OCR_ERROR"
+            )
+        
+        # Если это ошибка недоступности ИИ
+        if "ии для анализа шрифтов временно недоступен" in str(e).lower() or "сервис анализа шрифтов временно недоступен" in str(e).lower():
+            return FontAnalysisResult(
+                success=False,
+                message="ИИ для анализа шрифтов временно недоступен. Попробуйте позже или обратитесь к администратору.",
+                matches=[],
+                error="AI_SERVICE_UNAVAILABLE"
+            )
+        
+        # Если это ошибка инициализации PaddleOCR
+        if "не инициализирован" in str(e).lower() or "недоступен" in str(e).lower():
+            return FontAnalysisResult(
+                success=False,
+                message="Сервис анализа шрифтов временно недоступен. Попробуйте позже или обратитесь к администратору.",
+                matches=[],
+                error="SERVICE_UNAVAILABLE"
             )
         
         # Для других ошибок возвращаем общее сообщение

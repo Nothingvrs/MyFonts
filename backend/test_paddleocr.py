@@ -1,75 +1,102 @@
 #!/usr/bin/env python3
 """
-Простой тест PaddleOCR для диагностики проблемы
+Простейший тест PaddleOCR для диагностики
 """
-
+import sys
+import os
 import numpy as np
 import cv2
-from PIL import Image
-import io
 
+print("🔍 Диагностика PaddleOCR")
+print("=" * 50)
+
+# 1. Проверим версии библиотек
+print("📦 Версии библиотек:")
+try:
+    import paddlepaddle
+    print(f"  - PaddlePaddle: {paddlepaddle.__version__}")
+except:
+    print("  - PaddlePaddle: НЕ УСТАНОВЛЕН")
+
+try:
+    import paddleocr
+    print(f"  - PaddleOCR: {paddleocr.__version__}")
+except:
+    print("  - PaddleOCR: НЕ УСТАНОВЛЕН")
+
+print(f"  - OpenCV: {cv2.__version__}")
+print(f"  - NumPy: {np.__version__}")
+
+# 2. Попробуем импортировать PaddleOCR
+print("\n🔄 Импорт PaddleOCR...")
 try:
     from paddleocr import PaddleOCR
     print("✅ PaddleOCR импортирован успешно")
-except ImportError as e:
-    print(f"❌ Ошибка импорта PaddleOCR: {e}")
-    exit(1)
+except Exception as e:
+    print(f"❌ Ошибка импорта: {e}")
+    sys.exit(1)
 
-def test_paddleocr():
-    """Тестируем PaddleOCR с простым изображением"""
-    print("🚀 Инициализация PaddleOCR...")
-    
-    try:
-        # Инициализируем PaddleOCR
-        ocr = PaddleOCR(use_angle_cls=True, lang='ru')
-        print("✅ PaddleOCR инициализирован")
-    except Exception as e:
-        print(f"❌ Ошибка инициализации: {e}")
-        return False
-    
-    # Создаем простое тестовое изображение с текстом
-    print("🖼️ Создаем тестовое изображение...")
-    
-    # Белый фон 400x200
-    img = np.ones((200, 400, 3), dtype=np.uint8) * 255
-    
-    # Добавляем черный текст
-    cv2.putText(img, 'Test Text', (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3)
-    
-    print(f"📊 Размер изображения: {img.shape}, тип: {img.dtype}")
-    
-    # Тестируем OCR
-    try:
-        print("🔍 Запуск OCR...")
-        result = ocr.ocr(img)
-        
-        print(f"✅ OCR выполнен!")
-        print(f"📊 Тип результата: {type(result)}")
-        print(f"📝 Результат: {result}")
-        
-        if result and len(result) > 0 and result[0]:
-            print(f"🎯 Найдено {len(result[0])} текстовых областей")
-            for i, line in enumerate(result[0]):
-                if len(line) >= 2:
-                    bbox = line[0]
-                    text_info = line[1]
-                    print(f"  {i+1}. bbox: {bbox}")
-                    print(f"     text: {text_info}")
-        else:
-            print("⚠️ Текст не найден")
-            
-        return True
-        
-    except Exception as e:
-        print(f"❌ Ошибка OCR: {e}")
-        print(f"📊 Тип ошибки: {type(e)}")
-        return False
+# 3. Создадим простое тестовое изображение
+print("\n🖼️ Создание тестового изображения...")
+test_image = np.ones((100, 400, 3), dtype=np.uint8) * 255  # Белый фон
+cv2.putText(test_image, 'HELLO WORLD', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
 
-if __name__ == "__main__":
-    print("🧪 Тестирование PaddleOCR...")
-    success = test_paddleocr()
+# Сохраним для проверки
+cv2.imwrite('test_image.png', test_image)
+print("✅ Тестовое изображение создано: test_image.png")
+
+# 4. Попробуем создать PaddleOCR объект
+print("\n🚀 Создание PaddleOCR объекта...")
+try:
+    # Самая простая конфигурация
+    ocr = PaddleOCR(lang='en', use_angle_cls=False)
+    print("✅ PaddleOCR объект создан успешно")
+except Exception as e:
+    print(f"❌ Ошибка создания PaddleOCR: {e}")
+    print(f"💡 Тип ошибки: {type(e).__name__}")
+    sys.exit(1)
+
+# 5. Попробуем распознать текст
+print("\n📖 Тест распознавания...")
+try:
+    result = ocr.ocr(test_image)
+    print(f"✅ OCR выполнен, результат: {result}")
     
-    if success:
-        print("🎉 Тест успешен!")
+    if result and result[0]:
+        for line in result[0]:
+            text = line[1][0]
+            confidence = line[1][1]
+            print(f"  📝 Найден текст: '{text}' (уверенность: {confidence:.2f})")
     else:
-        print("💥 Тест провален!")
+        print("⚠️ Текст не найден")
+        
+except Exception as e:
+    print(f"❌ Ошибка OCR: {e}")
+    print(f"💡 Тип ошибки: {type(e).__name__}")
+
+# 6. Попробуем с русским языком
+print("\n🇷🇺 Тест с русским языком...")
+try:
+    # Создадим изображение с русским текстом
+    russian_image = np.ones((100, 400, 3), dtype=np.uint8) * 255
+    cv2.putText(russian_image, 'PRIVET MIR', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2)
+    cv2.imwrite('test_russian.png', russian_image)
+    
+    # Создадим OCR для русского
+    ru_ocr = PaddleOCR(lang='ru', use_angle_cls=False)
+    result = ru_ocr.ocr(russian_image)
+    print(f"✅ Русский OCR выполнен, результат: {result}")
+    
+    if result and result[0]:
+        for line in result[0]:
+            text = line[1][0]
+            confidence = line[1][1]
+            print(f"  📝 Найден текст: '{text}' (уверенность: {confidence:.2f})")
+    else:
+        print("⚠️ Русский текст не найден")
+        
+except Exception as e:
+    print(f"❌ Ошибка русского OCR: {e}")
+    print(f"💡 Тип ошибки: {type(e).__name__}")
+
+print("\n🏁 Диагностика завершена")

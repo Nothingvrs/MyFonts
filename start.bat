@@ -7,4 +7,7 @@ echo.
 echo ⚠️  Для остановки нажмите Ctrl+C
 echo.
 
+REM Устанавливаем базовый URL backend для фронтенда по умолчанию
+IF NOT DEFINED VITE_API_BASE_URL SET VITE_API_BASE_URL=http://localhost:8000
+
 npm start

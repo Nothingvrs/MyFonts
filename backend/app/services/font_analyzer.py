@@ -56,8 +56,8 @@ class FontAnalyzer:
             
             logger.info("✅ PaddleOCR доступен - начинаем анализ")
             
-            # ШАГ 1: Определение наличия текста через PaddleOCR
-            logger.info("=== ШАГ 1: Определение наличия текста через PaddleOCR ===")
+            # ШАГ 1: УЛУЧШЕННОЕ определение наличия текста через PaddleOCR
+            logger.info("=== ШАГ 1: УЛУЧШЕННОЕ определение наличия текста через PaddleOCR ===")
             print("🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: Вызываем PaddleOCR.analyze_image()")
             logger.info("🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: Вызываем PaddleOCR.analyze_image()")
             ocr_result = await self.paddleocr_service.analyze_image(image)
@@ -72,15 +72,20 @@ class FontAnalyzer:
             logger.info(f"  - regions_count: {ocr_result.get('regions_count', 0)}")
             logger.info(f"  - error: {ocr_result.get('error', 'нет')}")
             
-            if not ocr_result.get('has_text', False):
-                logger.info("РЕЗУЛЬТАТ ШАГ 1: Текст не обнаружен - СТОП")
-                error_msg = ocr_result.get('error', 'OCR не смог найти текст на изображении')
-                raise ValueError(f"На изображении не обнаружен читаемый текст: {error_msg}")
+            # УЛУЧШЕННАЯ проверка наличия текста
+            text_validation = self._validate_text_presence(ocr_result)
+            if not text_validation['is_valid']:
+                logger.info(f"РЕЗУЛЬТАТ ШАГ 1: Текст не прошел валидацию - {text_validation['reason']}")
+                raise ValueError(f"На изображении не обнаружен читаемый текст: {text_validation['reason']}")
             
-            logger.info("РЕЗУЛЬТАТ ШАГ 1: ✅ Текст успешно обнаружен - продолжаем")
+            logger.info("РЕЗУЛЬТАТ ШАГ 1: ✅ Текст успешно прошел валидацию - продолжаем")
             
-            # ШАГ 2: Проверка множественных шрифтов через PaddleOCR
-            logger.info("=== ШАГ 2: Проверка множественных шрифтов через PaddleOCR ===")
+            # ШАГ 2: УЛУЧШЕННАЯ проверка множественных шрифтов через PaddleOCR
+            logger.info("=== ШАГ 2: УЛУЧШЕННАЯ проверка множественных шрифтов через PaddleOCR ===")
+            # Уважаем флаг, рассчитанный на стороне PaddleOCR
+            if ocr_result.get('multiple_fonts', False):
+                logger.info("РЕЗУЛЬТАТ ШАГ 2: Обнаружено несколько шрифтов (из PaddleOCR) - СТОП")
+                raise ValueError("На изображении обнаружено несколько разных шрифтов. Для точного анализа загрузите изображение с текстом одного шрифта.")
             if await self._detect_multiple_fonts_from_ocr_result(ocr_result):
                 logger.info("РЕЗУЛЬТАТ ШАГ 2: Обнаружено несколько шрифтов - СТОП")
                 raise ValueError("На изображении обнаружено несколько разных шрифтов. Для точного анализа загрузите изображение с текстом одного шрифта.")
@@ -125,7 +130,194 @@ class FontAnalyzer:
             
             raise ValueError(user_message)
     
-
+    def _validate_text_presence(self, ocr_result: dict) -> dict:
+        """СТРОГАЯ валидация наличия текста в изображении"""
+        try:
+            logger.info("=== СТРОГАЯ ВАЛИДАЦИЯ НАЛИЧИЯ ТЕКСТА ===")
+            
+            # Базовые проверки
+            has_text = ocr_result.get('has_text', False)
+            text_content = ocr_result.get('text_content', '').strip()
+            confidence = ocr_result.get('confidence', 0.0)
+            regions_count = ocr_result.get('regions_count', 0)
+            text_regions = ocr_result.get('text_regions', [])
+            
+            logger.info(f"📊 Данные для валидации:")
+            logger.info(f"  - has_text: {has_text}")
+            logger.info(f"  - text_content: '{text_content}'")
+            logger.info(f"  - text_length: {len(text_content)}")
+            logger.info(f"  - confidence: {confidence:.3f}")
+            logger.info(f"  - regions_count: {regions_count}")
+            logger.info(f"  - text_regions: {len(text_regions)}")
+            
+            # 1. Проверка базового флага OCR
+            if not has_text:
+                return {
+                    'is_valid': False,
+                    'reason': 'На изображении не обнаружен текст',
+                    'details': 'PaddleOCR не смог найти текстовые области на изображении'
+                }
+            
+            # 2. Проверка содержимого текста
+            if not text_content or len(text_content.strip()) < 1:
+                return {
+                    'is_valid': False,
+                    'reason': 'Найденный текст слишком короткий или пустой',
+                    'details': f'Длина текста: {len(text_content)} символов'
+                }
+            
+            # 3. Проверка качества распознавания
+            if confidence < 0.05:  # Еще больше понижаем порог
+                return {
+                    'is_valid': False,
+                    'reason': 'Качество распознавания текста слишком низкое',
+                    'details': f'Уверенность OCR: {confidence:.2f} (минимум: 0.05)'
+                }
+            
+            # 4. Проверка количества текстовых регионов
+            if regions_count < 1 or len(text_regions) < 1:
+                return {
+                    'is_valid': False,
+                    'reason': 'Не найдено ни одной области с текстом',
+                    'details': f'Регионов: {regions_count}, областей: {len(text_regions)}'
+                }
+            
+            # 5. Проверка качества отдельных областей текста
+            valid_regions = 0
+            for region in text_regions:
+                region_conf = region.get('confidence', 0)
+                region_text = region.get('text', '').strip()
+                
+                if region_conf >= 0.05 and len(region_text) >= 1:  # Еще больше понижаем порог
+                    valid_regions += 1
+            
+            if valid_regions < 1:
+                return {
+                    'is_valid': False,
+                    'reason': 'Ни одна область текста не прошла проверку качества',
+                    'details': f'Валидных областей: {valid_regions} из {len(text_regions)}'
+                }
+            
+            # 6. Проверка на осмысленность текста
+            # Убираем специальные символы и проверяем что остались буквы/цифры
+            clean_text = ''.join(c for c in text_content if c.isalnum() or c.isspace()).strip()
+            if len(clean_text) < 1:  # Понижаем требование до 1 символа
+                return {
+                    'is_valid': False,
+                    'reason': 'Текст не содержит читаемых символов',
+                    'details': f'Чистый текст: "{clean_text}" (длина: {len(clean_text)})'
+                }
+            
+            # 7. Проверка на минимальное количество букв или цифр
+            letter_count = sum(1 for c in text_content if c.isalpha())
+            digit_count = sum(1 for c in text_content if c.isdigit())
+            if letter_count < 1 and digit_count < 1:  # Разрешаем цифры
+                return {
+                    'is_valid': False,
+                    'reason': 'Текст не содержит букв или цифр',
+                    'details': f'Букв: {letter_count}, цифр: {digit_count}'
+                }
+            
+            # 8. Предупреждение о кириллице (не блокируем)
+            cyrillic_chars = sum(1 for char in text_content if 1040 <= ord(char) <= 1103)
+            if cyrillic_chars == 0:
+                logger.warning("⚠️ Текст не содержит кириллических символов - результаты могут быть менее точными")
+            
+            # Все проверки пройдены
+            logger.info("✅ Валидация текста пройдена успешно")
+            return {
+                'is_valid': True,
+                'reason': 'Текст успешно прошел все проверки качества',
+                'details': f'Текст: "{text_content[:50]}..." (длина: {len(text_content)}, уверенность: {confidence:.2f}, регионов: {valid_regions})'
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка валидации текста: {str(e)}")
+            return {
+                'is_valid': False,
+                'reason': f'Техническая ошибка при валидации текста',
+                'details': f'Ошибка: {str(e)}'
+            }
+    
+    def _assess_text_quality(self, text_content: str, confidence: float, regions_count: int) -> dict:
+        """Оценка качества распознанного текста"""
+        try:
+            score = 0.0
+            reasons = []
+            
+            # 1. Базовая оценка по уверенности OCR (вес: 40%)
+            confidence_score = min(1.0, confidence / 0.8)  # Нормализуем к 0.8 как максимум
+            score += confidence_score * 0.4
+            
+            # 2. Оценка по количеству регионов (вес: 25%)
+            # Больше регионов = лучше качество, но не слишком много
+            if regions_count >= 3 and regions_count <= 20:
+                regions_score = 1.0
+            elif regions_count > 20:
+                regions_score = 0.7  # Много регионов может означать шум
+            else:
+                regions_score = regions_count / 3.0
+            
+            score += regions_score * 0.25
+            
+            # 3. Оценка по содержимому текста (вес: 35%)
+            content_score = 0.0
+            
+            # Проверяем на наличие осмысленных символов
+            meaningful_chars = sum(1 for char in text_content if char.isalnum() or char.isspace())
+            if len(text_content) > 0:
+                meaningful_ratio = meaningful_chars / len(text_content)
+                content_score += meaningful_ratio * 0.5
+            
+            # Проверяем на наличие слов разной длины
+            words = text_content.split()
+            if len(words) >= 2:
+                word_lengths = [len(word) for word in words]
+                avg_word_length = sum(word_lengths) / len(word_lengths)
+                if 2 <= avg_word_length <= 8:  # Нормальная длина слов
+                    content_score += 0.3
+                elif avg_word_length > 8:
+                    content_score += 0.1  # Длинные слова могут быть ошибками OCR
+            
+            # Проверяем на наличие кириллических символов
+            cyrillic_chars = sum(1 for char in text_content if ord(char) >= 1040 and ord(char) <= 1103)
+            if cyrillic_chars > 0:
+                content_score += 0.2
+            
+            score += content_score * 0.35
+            
+            # Определяем качество
+            is_good = score >= 0.6
+            reason = "Хорошее качество" if is_good else "Низкое качество"
+            
+            if score < 0.4:
+                reason = "Очень низкое качество"
+            elif score < 0.6:
+                reason = "Низкое качество"
+            elif score < 0.8:
+                reason = "Среднее качество"
+            else:
+                reason = "Высокое качество"
+            
+            return {
+                'is_good': is_good,
+                'score': score,
+                'reason': reason,
+                'details': {
+                    'confidence_score': confidence_score,
+                    'regions_score': regions_score,
+                    'content_score': content_score
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка оценки качества текста: {str(e)}")
+            return {
+                'is_good': False,
+                'score': 0.0,
+                'reason': f'Ошибка оценки: {str(e)}',
+                'details': {}
+            }
     
     def _load_image(self, image_bytes: bytes) -> np.ndarray:
         """Загрузка изображения из байтов"""
@@ -159,119 +351,416 @@ class FontAnalyzer:
     
 
     
+
+    
+
+    
     async def _detect_multiple_fonts_from_ocr_result(self, ocr_result: dict) -> bool:
-        """Детекция множественных шрифтов на основе уже полученного OCR результата"""
+        """Точная детекция множественных шрифтов на основе OCR результата"""
         try:
-            logger.info("=== АНАЛИЗ МНОЖЕСТВЕННЫХ ШРИФТОВ ПО OCR РЕЗУЛЬТАТУ ===")
+            logger.info("=== ТОЧНАЯ ДЕТЕКЦИЯ МНОЖЕСТВЕННЫХ ШРИФТОВ ===")
             
             if not ocr_result.get('has_text', False):
-                logger.info("📊 OCR не нашел текст - считаем один шрифт")
+                logger.info("OCR не нашел текст - один шрифт")
                 return False
             
             text_content = ocr_result.get('text_content', '').strip()
             regions_count = ocr_result.get('regions_count', 0)
-            ocr_boxes = ocr_result.get('ocr_boxes', [])
+            text_regions = ocr_result.get('text_regions', [])
+            confidence = ocr_result.get('confidence', 0.0)
             
-            logger.info(f"📊 OCR данные: '{text_content[:30]}...' ({regions_count} регионов)")
+            logger.info(f"Анализ данных: '{text_content[:50]}...' ({regions_count} регионов, уверенность: {confidence:.2f})")
+            logger.info(f"Количество областей текста: {len(text_regions)}")
             
-            # Анализируем текст
-            words = text_content.split()
-            word_count = len(words)
-            
-            # ПРОСТЫЕ СЛУЧАИ - один шрифт
-            if word_count <= 3:
-                logger.info(f"📊 Мало слов ({word_count}) - ОДИН шрифт")
+            # Базовая проверка - нужно минимум 2 области для множественных шрифтов
+            if regions_count < 2 or len(text_regions) < 2:
+                logger.info(f"Недостаточно областей ({len(text_regions)}) для множественных шрифтов")
                 return False
             
-            if regions_count < 6:
-                logger.info(f"📊 Мало регионов ({regions_count}) - ОДИН шрифт")
+            # Фильтрация шумовых регионов: очень короткие тексты и низкая уверенность
+            filtered_regions = []
+            for r in text_regions:
+                txt = str(r.get('text', '')).strip()
+                conf = float(r.get('confidence', 0.0))
+                if len(txt) >= 2 and conf >= 0.6:
+                    filtered_regions.append(r)
+
+            if len(filtered_regions) < 2:
+                logger.info("После фильтрации шумов осталось < 2 регионов — считаем один шрифт")
                 return False
+
+            # Ранний критерий одного шрифта: доминирующий кластер высот
+            heights = [r.get('height', 0) for r in filtered_regions if r.get('height', 0) > 5]
+            if len(heights) >= 3:
+                import numpy as np
+                h_arr = np.array(heights, dtype=float)
+                median_h = float(np.median(h_arr))
+                if median_h > 0:
+                    in_band = np.logical_and(h_arr >= 0.7 * median_h, h_arr <= 1.3 * median_h)
+                    frac_in_band = float(np.sum(in_band)) / float(len(h_arr))
+                    logger.info(f"Доля высот в [0.7..1.3] от медианы: {frac_in_band:.2f}")
+                    if frac_in_band >= 0.8:
+                        logger.info("✅ Доминирует один кластер высот (>=80%) — считаем один шрифт")
+                        return False
+
+            # Используем улучшенный алгоритм на отфильтрованных регионах
+            multiple_fonts_detected = await self._advanced_multiple_fonts_detection(filtered_regions, text_content)
             
-            # АНАЛИЗ СОДЕРЖИМОГО через OCR
-            has_title = any(len(word) > 4 and word.isupper() for word in words)
-            has_normal_text = any(len(word) > 3 and not word.isupper() for word in words)
-            has_numbers = any(char.isdigit() for char in text_content)
-            has_special_words = any(word.lower() in ['скидка', 'цена', 'рубль', '%', 'руб', 'распродажа'] for word in words)
+            if multiple_fonts_detected:
+                logger.info("✅ ОБНАРУЖЕНЫ МНОЖЕСТВЕННЫЕ ШРИФТЫ")
+            else:
+                logger.info("✅ ОДИН ШРИФТ")
             
-            logger.info(f"📊 Анализ содержимого: заголовок={has_title}, текст={has_normal_text}, цифры={has_numbers}, спец.слова={has_special_words}")
-            
-            # АНАЛИЗ РАЗМЕРОВ ЧЕРЕЗ OCR BOXES
-            height_ratio = 1.0
-            area_ratio = 1.0
-            
-            if len(ocr_boxes) >= 4:
-                heights = []
-                areas = []
-                
-                for box_info in ocr_boxes:
-                    if isinstance(box_info, dict) and 'bbox' in box_info:
-                        bbox = box_info['bbox']
-                        if isinstance(bbox, list) and len(bbox) >= 4:
-                            if isinstance(bbox[0], list):  # Формат [[x1,y1], [x2,y2], ...]
-                                x_coords = [point[0] for point in bbox]
-                                y_coords = [point[1] for point in bbox]
-                            else:  # Формат [x1, y1, x2, y2]
-                                x_coords = [bbox[0], bbox[2]]
-                                y_coords = [bbox[1], bbox[3]]
-                            
-                            width = max(x_coords) - min(x_coords)
-                            height = max(y_coords) - min(y_coords)
-                            
-                            if height > 0 and width > 0:
-                                heights.append(height)
-                                areas.append(width * height)
-                
-                if len(heights) >= 2:
-                    height_ratio = max(heights) / min(heights)
-                    area_ratio = max(areas) / min(areas)
-                    
-                    logger.info(f"📊 OCR размеры: высота={height_ratio:.1f}, площадь={area_ratio:.1f}")
-            
-            # КРИТЕРИИ МНОЖЕСТВЕННЫХ ШРИФТОВ:
-            
-            # 1. Простые случаи - точно ОДИН шрифт
-            if word_count <= 2 and regions_count <= 3:
-                logger.info("📊 Простой случай: очень мало слов и регионов - ОДИН шрифт")
-                return False
-            
-            # 2. Средняя сложность
-            if word_count <= 8 and regions_count <= 10:
-                if height_ratio <= 2.5 and area_ratio <= 8.0:
-                    logger.info("📊 Средняя сложность: размеры стабильные - ОДИН шрифт")
-                    return False
-                elif has_title and has_normal_text and height_ratio > 2.5:
-                    logger.info("✅ МНОЖЕСТВЕННЫЕ ШРИФТЫ: заголовок + текст + разные размеры")
-                    return True
-                else:
-                    logger.info("📊 Средняя сложность: неопределенно - считаем ОДИН шрифт")
-                    return False
-            
-            # 3. Сложные случаи
-            if word_count > 8 or regions_count > 10:
-                if height_ratio > 3.5 and area_ratio > 10.0:
-                    logger.info("✅ МНОЖЕСТВЕННЫЕ ШРИФТЫ: большая разница в размерах")
-                    return True
-                elif has_title and has_normal_text and height_ratio > 2.2 and word_count >= 10:
-                    logger.info("✅ МНОЖЕСТВЕННЫЕ ШРИФТЫ: заголовок + много текста + разные размеры")
-                    return True
-                elif height_ratio > 3.0 and regions_count >= 15:
-                    logger.info("✅ МНОЖЕСТВЕННЫЕ ШРИФТЫ: много регионов + заметная разница размеров")
-                    return True
-                elif has_numbers and has_normal_text and height_ratio > 2.8:
-                    logger.info("✅ МНОЖЕСТВЕННЫЕ ШРИФТЫ: цифры + текст + разные размеры")
-                    return True
-                else:
-                    logger.info("📊 Сложный случай: неопределенно - считаем ОДИН шрифт")
-                    return False
-            
-            # По умолчанию считаем один шрифт
-            logger.info("📊 По умолчанию: считаем ОДИН шрифт")
-            return False
+            return multiple_fonts_detected
             
         except Exception as e:
             logger.error(f"Ошибка анализа множественных шрифтов: {str(e)}")
             logger.warning("⚠️ При ошибке считаем один шрифт")
             return False
+    
+    async def _advanced_multiple_fonts_detection(self, text_regions: list, text_content: str) -> bool:
+        """Продвинутая детекция множественных шрифтов"""
+        try:
+            logger.info("=== ПРОДВИНУТАЯ ДЕТЕКЦИЯ МНОЖЕСТВЕННЫХ ШРИФТОВ ===")
+            # 0) Жёстко фильтруем шум: очень короткие строки, низкая уверенность, нулевые размеры
+            filtered = []
+            for r in text_regions:
+                txt = str(r.get('text', '')).strip()
+                conf = float(r.get('confidence', 0.0))
+                h = float(r.get('height', 0) or 0)
+                w = float(r.get('width', 0) or 0)
+                if len(txt) >= 3 and conf >= 0.6 and h > 5 and w > 5:
+                    filtered.append(r)
+            if len(filtered) < 2:
+                logger.info("После жесткой фильтрации шумов осталось < 2 регионов — считаем один шрифт")
+                return False
+
+            # 1. Анализ размеров текстовых областей
+            heights = [region.get('height', 0) for region in filtered]
+            heights = [h for h in heights if h > 5]  # Фильтруем слишком маленькие
+            
+            logger.info(f"Высоты областей: {heights}")
+            
+            if len(heights) >= 2:
+                import numpy as np
+                heights_array = np.array(heights)
+                # Робастные метрики по медиане
+                median_h = float(np.median(heights_array))
+                mad = float(np.median(np.abs(heights_array - median_h)) + 1e-6)
+                std_height = 1.4826 * mad
+                mean_height = float(np.mean(heights_array))
+                max_height = np.max(heights_array)
+                min_height = np.min(heights_array)
+                
+                # Коэффициент вариации
+                height_variation = std_height / median_h if median_h > 0 else 0
+                # Соотношение размеров
+                height_ratio = max_height / min_height if min_height > 0 else 1
+                
+                logger.info(f"Статистика высот: среднее={mean_height:.1f}, отклонение={std_height:.1f}")
+                logger.info(f"Коэффициент вариации: {height_variation:.3f}, соотношение: {height_ratio:.2f}")
+                
+                # Проверяем критерии множественных шрифтов (чуть менее чувствительно)
+                # 1. Большая вариация в размерах относительно медианы
+                if height_variation > 0.8:
+                    logger.info("✅ Обнаружена большая вариация размеров")
+                    return True
+                
+                # 2. Большое соотношение размеров (заголовок vs основной текст)
+                if height_ratio > 3.0:
+                    logger.info("✅ Обнаружено большое соотношение размеров (заголовок/основной текст)")
+                    return True
+            
+            # 2. Анализ площадей областей
+            areas = [region.get('area', 0) for region in filtered]
+            areas = [a for a in areas if a > 25]  # Фильтруем слишком маленькие
+            
+            if len(areas) >= 2:
+                import numpy as np
+                areas_array = np.array(areas)
+                area_ratio = np.max(areas_array) / np.min(areas_array) if np.min(areas_array) > 0 else 1
+                
+                logger.info(f"Соотношение площадей: {area_ratio:.2f}")
+                
+                if area_ratio > 3.5:
+                    logger.info("✅ Обнаружено большое соотношение площадей")
+                    return True
+            
+            # 3. Анализ текстового содержимого
+            words = text_content.split()
+            if len(words) >= 6:
+                # Анализ стилей
+                has_uppercase = any(word.isupper() and len(word) > 1 for word in words)
+                has_lowercase = any(word.islower() and len(word) > 1 for word in words)
+                has_mixed_case = any(word[0].isupper() and any(c.islower() for c in word[1:]) for word in words if len(word) > 1)
+                has_numbers = any(any(c.isdigit() for c in word) for word in words)
+                
+                style_count = sum([has_uppercase, has_lowercase, has_mixed_case, has_numbers])
+                
+                logger.info(f"Анализ стилей: uppercase={has_uppercase}, lowercase={has_lowercase}, mixed={has_mixed_case}, numbers={has_numbers}")
+                logger.info(f"Количество разных стилей: {style_count}")
+                
+                # Если много разных стилей + достаточно областей
+                if style_count >= 3 and len(filtered) >= 8:
+                    logger.info("✅ Обнаружено разнообразие стилей с множественными областями")
+                    return True
+            
+            # 4. Кластерный анализ размеров
+            if len(heights) >= 4:
+                clusters = self._cluster_heights(heights)
+                logger.info(f"Обнаружено {len(clusters)} кластеров размеров: {clusters}")
+                
+                if len(clusters) >= 2:
+                    # Требуем достаточную поддержку обоих кластеров и явную разницу
+                    cluster_means = [np.mean(cluster) for cluster in clusters]
+                    cluster_sizes = [len(cluster) for cluster in clusters]
+                    cluster_ratio = max(cluster_means) / min(cluster_means) if min(cluster_means) > 0 else 1
+                    if cluster_ratio > 2.0 and min(cluster_sizes) >= 3:
+                        logger.info("✅ Обнаружены 2+ устойчивых кластера размеров")
+                        return True
+            
+            # 5. Проверка по количеству областей (строгая)
+            if len(filtered) >= 12:
+                # Дополнительная проверка на разнообразие
+                if len(heights) >= 3 and height_variation > 0.45:
+                    logger.info("✅ Много областей с достаточной вариацией размеров")
+                    return True
+            
+            logger.info("❌ Критерии множественных шрифтов не выполнены")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Ошибка продвинутой детекции: {str(e)}")
+            return False
+    
+    def _cluster_heights(self, heights: list, threshold: float = 0.3) -> list:
+        """Кластеризация высот для выявления групп размеров"""
+        if len(heights) < 2:
+            return [heights]
+        
+        import numpy as np
+        sorted_heights = sorted(heights)
+        clusters = []
+        current_cluster = [sorted_heights[0]]
+        
+        for height in sorted_heights[1:]:
+            # Если высота близка к среднему текущего кластера
+            cluster_mean = np.mean(current_cluster)
+            relative_diff = abs(height - cluster_mean) / cluster_mean
+            
+            if relative_diff <= threshold:
+                current_cluster.append(height)
+            else:
+                # Начинаем новый кластер
+                clusters.append(current_cluster)
+                current_cluster = [height]
+        
+        clusters.append(current_cluster)
+        return clusters
+    
+    def _analyze_text_sizes_from_ocr(self, ocr_boxes: list) -> dict:
+        """Анализ размеров текста из OCR boxes для детекции множественных шрифтов"""
+        try:
+            if not ocr_boxes or len(ocr_boxes) < 2:
+                return {'multiple_fonts_detected': False, 'height_ratio': 1.0, 'area_ratio': 1.0}
+            
+            heights = []
+            widths = []
+            areas = []
+            
+            for box_info in ocr_boxes:
+                if isinstance(box_info, dict) and 'bbox' in box_info:
+                    bbox = box_info['bbox']
+                    if isinstance(bbox, list) and len(bbox) >= 4:
+                        if isinstance(bbox[0], list):  # Формат [[x1,y1], [x2,y2], ...]
+                            x_coords = [point[0] for point in bbox]
+                            y_coords = [point[1] for point in bbox]
+                        else:  # Формат [x1, y1, x2, y2]
+                            x_coords = [bbox[0], bbox[2]]
+                            y_coords = [bbox[1], bbox[3]]
+                        
+                        width = max(x_coords) - min(x_coords)
+                        height = max(y_coords) - min(y_coords)
+                        
+                        if height > 5 and width > 5:  # Фильтруем слишком маленькие
+                            heights.append(height)
+                            widths.append(width)
+                            areas.append(width * height)
+            
+            if len(heights) < 2:
+                return {'multiple_fonts_detected': False, 'height_ratio': 1.0, 'area_ratio': 1.0}
+            
+            # Вычисляем соотношения
+            height_ratio = max(heights) / min(heights)
+            area_ratio = max(areas) / min(areas)
+            
+            # Анализируем распределение размеров
+            height_std = np.std(heights)
+            height_mean = np.mean(heights)
+            height_cv = height_std / height_mean if height_mean > 0 else 0  # Коэффициент вариации
+            
+            # Детекция множественных шрифтов по размерам
+            multiple_fonts_detected = False
+            
+            # Критерии:
+            # 1. Большая разница в высоте (заголовок vs основной текст)
+            if height_ratio > 2.5:
+                multiple_fonts_detected = True
+                logger.info(f"📏 Большая разница в высоте: {height_ratio:.1f}")
+            
+            # 2. Высокая вариативность размеров
+            if height_cv > 0.4:  # Коэффициент вариации > 40%
+                multiple_fonts_detected = True
+                logger.info(f"📏 Высокая вариативность размеров: {height_cv:.2f}")
+            
+            # 3. Несколько групп размеров
+            if len(heights) >= 6:
+                # Группируем размеры по кластерам
+                height_groups = self._cluster_sizes(heights)
+                if len(height_groups) >= 3:  # 3+ группы размеров
+                    multiple_fonts_detected = True
+                    logger.info(f"📏 Обнаружено {len(height_groups)} групп размеров")
+            
+            return {
+                'multiple_fonts_detected': multiple_fonts_detected,
+                'height_ratio': height_ratio,
+                'area_ratio': area_ratio,
+                'height_cv': height_cv,
+                'height_groups': len(self._cluster_sizes(heights)) if len(heights) >= 6 else 1
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка анализа размеров: {str(e)}")
+            return {'multiple_fonts_detected': False, 'height_ratio': 1.0, 'area_ratio': 1.0}
+    
+    def _cluster_sizes(self, sizes: list, threshold: float = 0.3) -> list:
+        """Простая кластеризация размеров для группировки"""
+        if len(sizes) < 2:
+            return [sizes]
+        
+        sorted_sizes = sorted(sizes)
+        clusters = []
+        current_cluster = [sorted_sizes[0]]
+        
+        for size in sorted_sizes[1:]:
+            # Если размер близок к текущему кластеру, добавляем в него
+            if abs(size - np.mean(current_cluster)) / np.mean(current_cluster) <= threshold:
+                current_cluster.append(size)
+            else:
+                # Начинаем новый кластер
+                clusters.append(current_cluster)
+                current_cluster = [size]
+        
+        clusters.append(current_cluster)
+        return clusters
+    
+    def _analyze_content_for_multiple_fonts(self, text_content: str, words: list, 
+                                          has_uppercase: bool, has_lowercase: bool, 
+                                          has_mixed_case: bool, has_all_caps: bool) -> dict:
+        """Анализ содержимого для детекции множественных шрифтов"""
+        try:
+            multiple_fonts_detected = False
+            reasons = []
+            
+            # 1. Анализ стилей текста
+            if has_uppercase and has_lowercase and has_mixed_case:
+                # Смешанные стили могут указывать на разные шрифты
+                if len(words) > 5:  # Только для достаточно длинных текстов
+                    multiple_fonts_detected = True
+                    reasons.append("смешанные стили текста")
+            
+            # 2. Анализ структуры (заголовок + основной текст)
+            if len(words) >= 8:
+                # Ищем потенциальные заголовки (короткие слова в начале)
+                first_words = words[:3]
+                if any(len(word) <= 4 and word.isupper() for word in first_words):
+                    if any(len(word) > 4 and not word.isupper() for word in words[3:6]):
+                        multiple_fonts_detected = True
+                        reasons.append("заголовок + основной текст")
+            
+            # 3. Анализ специальных элементов
+            if has_numbers and len(words) > 3:
+                # Цифры часто используют другой шрифт
+                number_words = [word for word in words if any(char.isdigit() for char in word)]
+                text_words = [word for word in words if not any(char.isdigit() for char in word)]
+                
+                if len(number_words) >= 2 and len(text_words) >= 3:
+                    multiple_fonts_detected = True
+                    reasons.append("цифры + текст")
+            
+            # 4. Анализ длины слов (заголовки обычно короче)
+            if len(words) >= 6:
+                short_words = [word for word in words if len(word) <= 3]
+                long_words = [word for word in words if len(word) >= 6]
+                
+                if len(short_words) >= 2 and len(long_words) >= 2:
+                    # Проверяем позиции - если короткие слова в начале/конце
+                    short_positions = [i for i, word in enumerate(words) if len(word) <= 3]
+                    if any(pos < 2 for pos in short_positions) or any(pos > len(words) - 3 for pos in short_positions):
+                        multiple_fonts_detected = True
+                        reasons.append("короткие + длинные слова в разных позициях")
+            
+            return {
+                'multiple_fonts_detected': multiple_fonts_detected,
+                'reasons': reasons,
+                'word_count': len(words),
+                'has_mixed_styles': has_uppercase and has_lowercase and has_mixed_case,
+                'has_numbers': any(char.isdigit() for char in text_content)
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка анализа содержимого: {str(e)}")
+            return {'multiple_fonts_detected': False, 'reasons': [], 'word_count': 0}
+    
+    def _calculate_multiple_fonts_score(self, regions_count: int, word_count: int, 
+                                      size_analysis: dict, content_analysis: dict, 
+                                      confidence: float) -> float:
+        """Вычисление оценки вероятности множественных шрифтов"""
+        try:
+            score = 0.0
+            
+            # 1. Размеры (вес: 40%)
+            if size_analysis['multiple_fonts_detected']:
+                score += 0.4
+            elif size_analysis['height_ratio'] > 2.0:
+                score += 0.2
+            elif size_analysis['height_cv'] > 0.3:
+                score += 0.15
+            
+            # 2. Содержимое (вес: 35%)
+            if content_analysis['multiple_fonts_detected']:
+                score += 0.35
+            elif content_analysis['has_mixed_styles'] and word_count > 5:
+                score += 0.2
+            elif content_analysis['has_numbers'] and word_count > 3:
+                score += 0.1
+            
+            # 3. Количество данных (вес: 15%)
+            if regions_count > 15 and word_count > 10:
+                score += 0.1
+            elif regions_count > 20:
+                score += 0.05
+            
+            # 4. Качество OCR (вес: 10%)
+            if confidence > 0.8:
+                score += 0.05  # Высокая уверенность OCR
+            elif confidence < 0.5:
+                score -= 0.05  # Низкая уверенность может давать ложные срабатывания
+            
+            # Нормализуем к диапазону [0, 1]
+            score = max(0.0, min(1.0, score))
+            
+            logger.info(f"📊 Оценка множественных шрифтов: {score:.3f}")
+            logger.info(f"  - Размеры: {size_analysis.get('multiple_fonts_detected', False)}")
+            logger.info(f"  - Содержимое: {content_analysis.get('multiple_fonts_detected', False)}")
+            logger.info(f"  - Данные: {regions_count} регионов, {word_count} слов")
+            logger.info(f"  - OCR уверенность: {confidence:.2f}")
+            
+            return score
+            
+        except Exception as e:
+            logger.error(f"Ошибка вычисления оценки: {str(e)}")
+            return 0.0
     
     def _get_ocr_based_characteristics(self, ocr_result: dict) -> dict:
         """Извлечение характеристик ТОЛЬКО из OCR результатов"""
@@ -367,17 +856,20 @@ class FontAnalyzer:
         # OCR результат уже получен в вызывающем методе
         logger.info("📊 Используем переданный OCR результат")
         
-        # ДОПОЛНИТЕЛЬНАЯ проверка на отсутствие текста
+        # ДОПОЛНИТЕЛЬНАЯ проверка на отсутствие текста (разрешаем 1 символ)
         text_content = ocr_result.get('text_content', '').strip()
-        if not text_content or len(text_content) < 2:
+        if not text_content or len(text_content) < 1:
             logger.warning("⚠️ OCR вернул пустой или слишком короткий текст")
             raise ValueError("На изображении не обнаружен читаемый текст для анализа")
         
         # Проверяем качество распознавания
         confidence = ocr_result.get('confidence', 0.0)
-        if confidence < 0.3:  # Низкая уверенность
-            logger.warning(f"⚠️ Низкая уверенность OCR: {confidence:.2f}")
-            raise ValueError("OCR не смог уверенно распознать текст на изображении")
+        # Синхронизируем порог с конфигом качества; при низкой уверенности продолжаем, но логируем предупреждение
+        from ..config.ocr_config import get_text_quality_config
+        quality_cfg = get_text_quality_config()
+        min_avg = quality_cfg.get('min_avg_confidence', 0.05)
+        if confidence < min_avg:
+            logger.warning(f"⚠️ Низкая уверенность OCR: {confidence:.2f} < {min_avg:.2f}. Продолжаем с консервативными характеристиками.")
         
         # Получаем OCR характеристики
         ocr_chars = self._get_ocr_based_characteristics(ocr_result)
@@ -432,7 +924,12 @@ class FontAnalyzer:
         # Интервалы на основе плотности текста
         letter_spacing = ocr_chars['avg_width'] / max(ocr_chars['avg_word_length'], 1) * 0.1
         word_spacing = ocr_chars['avg_width'] * 0.3
-        density = ocr_chars['text_density']
+        # Нормализуем плотность к диапазону [0,1] во избежание ошибок валидации
+        try:
+            density_val = float(ocr_chars.get('text_density', 0.0))
+        except Exception:
+            density_val = 0.0
+        density = max(0.0, min(1.0, density_val))
         
         # Кириллические особенности
         cyrillic_features = {

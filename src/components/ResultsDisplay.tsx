@@ -1,30 +1,5 @@
 import React, { useEffect } from 'react'
-
-interface FontMatch {
-	name: string
-	confidence: number
-	preview?: string
-	font_info?: {
-		id: number
-		name: string
-		category: string
-		designer?: string
-		year?: number
-		foundry?: string
-		description?: string
-		popularity: number
-		cyrillic_support: boolean
-	}
-	match_details?: {
-		overall_score: number
-		serif_match: number
-		stroke_match: number
-		contrast_match: number
-		cyrillic_match: number
-		geometric_match: number
-		spacing_match: number
-	}
-}
+import type { FontMatch } from '../services/apiClient'
 
 interface ResultsDisplayProps {
 	results: FontMatch[]

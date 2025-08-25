@@ -19,7 +19,11 @@ class GoogleFontsService:
     """Сервис для работы с Google Fonts API"""
     
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key
+        # Используем переданный ключ, иначе пробуем взять из окружения,
+        # иначе — fallback на ключ проекта (как ранее было захардкожено)
+        import os
+        fallback_key = "AIzaSyBGG0iqkjWIr8SlH8au0vQbmfojz7wtrKs"
+        self.api_key = api_key or os.environ.get("GOOGLE_FONTS_API_KEY") or fallback_key
         self.base_url = "https://www.googleapis.com/webfonts/v1/webfonts"
         self.cache_file = Path("google_fonts_cache.json")
         self.cache_duration = timedelta(hours=24)  # Кэш на 24 часа
@@ -59,7 +63,7 @@ class GoogleFontsService:
             return self._fonts_cache if self._fonts_cache else []
     
     async def _fetch_from_api(self) -> List[Dict]:
-        """Загрузка с Google Fonts API"""
+        """Улучшенная загрузка с Google Fonts API"""
         try:
             # Google Fonts API работает без ключа с ограничениями
             params = {"sort": "popularity"}
@@ -67,31 +71,74 @@ class GoogleFontsService:
                 params["key"] = self.api_key
             
             headers = {
-                'User-Agent': 'MyFonts/1.0 (Font Identification Service)'
+                'User-Agent': 'MyFonts/1.0 (Font Identification Service)',
+                'Accept': 'application/json',
+                'Accept-Encoding': 'gzip, deflate'
             }
             
-            timeout = aiohttp.ClientTimeout(total=30)
+            timeout = aiohttp.ClientTimeout(total=60)  # Увеличиваем таймаут
             
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-                logger.info(f"Запрос к Google Fonts API: {self.base_url}")
-                async with session.get(self.base_url, params=params) as response:
-                    logger.info(f"Статус ответа Google Fonts API: {response.status}")
-                    
-                    if response.status == 200:
-                        data = await response.json()
-                        items = data.get("items", [])
-                        logger.info(f"Получено {len(items)} шрифтов из Google Fonts API")
-                        return items
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"Google Fonts API вернул статус {response.status}: {error_text}")
-                        return []
+                logger.info(f"🔗 Запрос к Google Fonts API: {self.base_url}")
+                
+                # Пробуем несколько раз при ошибках
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        async with session.get(self.base_url, params=params) as response:
+                            logger.info(f"📡 Google Fonts API ответ: статус {response.status}")
+                            
+                            if response.status == 200:
+                                data = await response.json()
+                                items = data.get("items", [])
+                                logger.info(f"✅ Получено {len(items)} шрифтов из Google Fonts API")
+                                return items
+                            elif response.status == 429:  # Rate limit
+                                if attempt < max_retries - 1:
+                                    wait_time = (attempt + 1) * 5  # Увеличиваем время ожидания
+                                    logger.warning(f"⚠️ Rate limit, ждем {wait_time} сек...")
+                                    await asyncio.sleep(wait_time)
+                                    continue
+                                else:
+                                    logger.error("❌ Превышен лимит запросов к Google Fonts API")
+                                    return []
+                            else:
+                                error_text = await response.text()
+                                logger.error(f"❌ Google Fonts API вернул статус {response.status}: {error_text}")
+                                
+                                # Пробуем повторить для серверных ошибок
+                                if response.status >= 500 and attempt < max_retries - 1:
+                                    wait_time = (attempt + 1) * 2
+                                    logger.warning(f"⚠️ Серверная ошибка, ждем {wait_time} сек...")
+                                    await asyncio.sleep(wait_time)
+                                    continue
+                                else:
+                                    return []
+                                    
+                    except asyncio.TimeoutError:
+                        if attempt < max_retries - 1:
+                            wait_time = (attempt + 1) * 3
+                            logger.warning(f"⚠️ Таймаут, пробуем снова через {wait_time} сек...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            logger.error("❌ Таймаут при запросе к Google Fonts API")
+                            return []
+                            
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            wait_time = (attempt + 1) * 2
+                            logger.warning(f"⚠️ Ошибка запроса, пробуем снова через {wait_time} сек: {str(e)}")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            logger.error(f"❌ Ошибка запроса к Google Fonts API: {str(e)}")
+                            return []
+                
+                return []
                         
-        except asyncio.TimeoutError:
-            logger.error("Таймаут при запросе к Google Fonts API")
-            return []
         except Exception as e:
-            logger.error(f"Ошибка запроса к Google Fonts API: {str(e)}")
+            logger.error(f"❌ Критическая ошибка при запросе к Google Fonts API: {str(e)}")
             return []
     
     def _is_cache_valid(self) -> bool:
@@ -102,40 +149,81 @@ class GoogleFontsService:
         return datetime.now() - self._last_update < self.cache_duration
     
     def _load_from_file_cache(self) -> bool:
-        """Загрузка из файлового кэша"""
+        """Улучшенная загрузка из файлового кэша"""
         try:
             if not self.cache_file.exists():
+                logger.info("📁 Файл кэша Google Fonts не найден")
+                return False
+            
+            # Проверяем размер файла
+            file_size = self.cache_file.stat().st_size
+            if file_size < 1000:  # Меньше 1KB - файл поврежден
+                logger.warning("⚠️ Файл кэша слишком маленький, считаем поврежденным")
                 return False
             
             with open(self.cache_file, 'r', encoding='utf-8') as f:
                 cache_data = json.load(f)
             
-            # Проверяем время кэша
-            cache_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
-            if datetime.now() - cache_time > self.cache_duration:
+            # Проверяем структуру кэша
+            if not isinstance(cache_data, dict) or 'timestamp' not in cache_data or 'fonts' not in cache_data:
+                logger.warning("⚠️ Неверная структура файла кэша")
                 return False
             
-            self._fonts_cache = cache_data.get("fonts", [])
+            # Проверяем время кэша
+            try:
+                cache_time = datetime.fromisoformat(cache_data.get("timestamp", ""))
+                if datetime.now() - cache_time > self.cache_duration:
+                    logger.info("📅 Кэш Google Fonts устарел")
+                    return False
+            except ValueError:
+                logger.warning("⚠️ Неверный формат времени в кэше")
+                return False
+            
+            # Проверяем данные шрифтов
+            fonts = cache_data.get("fonts", [])
+            if not isinstance(fonts, list) or len(fonts) < 100:
+                logger.warning("⚠️ Кэш содержит недостаточно шрифтов")
+                return False
+            
+            self._fonts_cache = fonts
             self._last_update = cache_time
+            logger.info(f"📋 Загружен кэш Google Fonts: {len(fonts)} шрифтов от {cache_time.strftime('%Y-%m-%d %H:%M')}")
             return True
             
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Ошибка парсинга JSON кэша: {str(e)}")
+            return False
         except Exception as e:
-            logger.error(f"Ошибка загрузки файлового кэша: {str(e)}")
+            logger.error(f"❌ Ошибка загрузки файлового кэша: {str(e)}")
             return False
     
     def _save_to_file_cache(self):
-        """Сохранение в файловый кэш"""
+        """Улучшенное сохранение в файловый кэш"""
         try:
+            if not self._fonts_cache:
+                logger.warning("⚠️ Нет данных для сохранения в кэш")
+                return
+            
             cache_data = {
                 "timestamp": datetime.now().isoformat(),
-                "fonts": self._fonts_cache
+                "fonts": self._fonts_cache,
+                "version": "1.0",
+                "count": len(self._fonts_cache)
             }
             
-            with open(self.cache_file, 'w', encoding='utf-8') as f:
+            # Создаем временный файл для безопасного сохранения
+            temp_cache_file = self.cache_file.with_suffix('.tmp')
+            
+            with open(temp_cache_file, 'w', encoding='utf-8') as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            
+            # Атомарно заменяем старый файл новым
+            temp_cache_file.replace(self.cache_file)
+            
+            logger.info(f"💾 Кэш Google Fonts сохранен: {len(self._fonts_cache)} шрифтов")
                 
         except Exception as e:
-            logger.error(f"Ошибка сохранения файлового кэша: {str(e)}")
+            logger.error(f"❌ Ошибка сохранения файлового кэша: {str(e)}")
     
     def convert_to_font_info(self, google_font: Dict, font_id: int) -> FontInfo:
         """Конвертация Google Font в FontInfo"""
@@ -328,7 +416,7 @@ class GoogleFontsService:
             return []
     
     async def get_all_fonts_for_matching(self) -> List[FontInfo]:
-        """Получение ВСЕХ Google Fonts для сопоставления шрифтов (с кэшированием)"""
+        """Улучшенное получение ВСЕХ Google Fonts для сопоставления шрифтов"""
         try:
             # Проверяем кэш конвертированных шрифтов
             if (self._all_fonts_cache and 
@@ -338,7 +426,12 @@ class GoogleFontsService:
                 return self._all_fonts_cache
             
             logger.info("🔍 Загружаем и конвертируем ВСЕ Google Fonts для сопоставления...")
+            
+            # Получаем сырые данные
             google_fonts = await self.get_fonts()
+            if not google_fonts:
+                logger.warning("⚠️ Не удалось получить Google Fonts, используем старый кэш")
+                return self._all_fonts_cache if self._all_fonts_cache else []
             
             results = []
             font_id = 10000
@@ -346,33 +439,52 @@ class GoogleFontsService:
             # Конвертируем ТОЛЬКО кириллические шрифты (оптимизация для нашего сервиса)
             total = len(google_fonts)
             cyrillic_count = 0
+            conversion_errors = 0
             
             for i, font_data in enumerate(google_fonts):
-                # Проверяем поддержку кириллицы
-                subsets = font_data.get('subsets', [])
-                has_cyrillic = any(subset in ['cyrillic', 'cyrillic-ext'] for subset in subsets)
+                try:
+                    # Проверяем поддержку кириллицы
+                    subsets = font_data.get('subsets', [])
+                    has_cyrillic = any(subset in ['cyrillic', 'cyrillic-ext'] for subset in subsets)
+                    
+                    if has_cyrillic:  # ТОЛЬКО кириллические шрифты!
+                        font_info = self.convert_to_font_info(font_data, font_id)
+                        if font_info:
+                            results.append(font_info)
+                            font_id += 1
+                            cyrillic_count += 1
+                        else:
+                            conversion_errors += 1
+                    
+                    # Логируем прогресс каждые 500 шрифтов
+                    if (i + 1) % 500 == 0:
+                        logger.info(f"🇷🇺 Обработано {i + 1}/{total} шрифтов, найдено {cyrillic_count} кириллических")
                 
-                if has_cyrillic:  # ТОЛЬКО кириллические шрифты!
-                    font_info = self.convert_to_font_info(font_data, font_id)
-                    if font_info:
-                        results.append(font_info)
-                        font_id += 1
-                        cyrillic_count += 1
-                
-                # Логируем прогресс каждые 500 шрифтов
-                if (i + 1) % 500 == 0:
-                    logger.info(f"🇷🇺 Обработано {i + 1}/{total} шрифтов, найдено {cyrillic_count} кириллических")
+                except Exception as e:
+                    conversion_errors += 1
+                    if conversion_errors <= 5:  # Логируем только первые 5 ошибок
+                        logger.error(f"❌ Ошибка конвертации шрифта {font_data.get('family', 'Unknown')}: {str(e)}")
+                    continue
             
             # Кэшируем результат
             self._all_fonts_cache = results
             self._all_fonts_cache_time = datetime.now()
             
             logger.info(f"✅ Конвертировано и закэшировано {len(results)} Google Fonts для сопоставления")
+            if conversion_errors > 0:
+                logger.warning(f"⚠️ Ошибки конвертации: {conversion_errors} шрифтов")
+            
             return results
             
         except Exception as e:
-            logger.error(f"Ошибка получения всех Google Fonts: {str(e)}")
-            return self._all_fonts_cache if self._all_fonts_cache else []
+            logger.error(f"❌ Ошибка получения всех Google Fonts: {str(e)}")
+            # Возвращаем старый кэш если есть
+            if self._all_fonts_cache:
+                logger.info(f"📋 Возвращаем старый кэш: {len(self._all_fonts_cache)} шрифтов")
+                return self._all_fonts_cache
+            else:
+                logger.error("❌ Нет доступных Google Fonts")
+                return []
     
     async def get_popular_fonts(self, limit: int = 100) -> List[FontInfo]:
         """Получение популярных шрифтов"""

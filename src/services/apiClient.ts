@@ -6,17 +6,7 @@ export interface FontMatch {
 	name: string
 	confidence: number
 	preview?: string
-	font_info?: {
-		id: number
-		name: string
-		category: string
-		designer?: string
-		year?: number
-		foundry?: string
-		description?: string
-		popularity: number
-		cyrillic_support: boolean
-	}
+	font_info?: FontInfo
 	match_details?: {
 		overall_score: number
 		serif_match: number
@@ -28,11 +18,57 @@ export interface FontMatch {
 	}
 }
 
+export type FontCategory =
+	| 'serif'
+	| 'sans-serif'
+	| 'monospace'
+	| 'display'
+	| 'handwriting'
+	| 'script'
+
+export interface CyrillicFeatures {
+	ya_shape: number
+	zh_shape: number
+	fi_shape: number
+	shcha_shape: number
+	yery_shape: number
+}
+
+export interface FontCharacteristics {
+	has_serifs: boolean
+	stroke_width: number
+	contrast: number
+	slant: number
+	cyrillic_features: CyrillicFeatures
+	x_height: number
+	cap_height: number
+	ascender: number
+	descender: number
+	letter_spacing: number
+	word_spacing: number
+	density: number
+}
+
+export interface FontInfo {
+	id?: number
+	name: string
+	category: FontCategory
+	characteristics: FontCharacteristics
+	popularity: number
+	cyrillic_support: boolean
+	designer?: string
+	year?: number
+	foundry?: string
+	description?: string
+	license?: string
+	download_url?: string
+}
+
 export interface AnalysisResult {
 	success: boolean
 	message: string
 	matches: FontMatch[]
-	characteristics?: any
+	characteristics?: FontCharacteristics
 	error?: string
 	processing_time?: number
 }
@@ -40,7 +76,7 @@ export interface AnalysisResult {
 export interface ApiError {
 	error: string
 	message: string
-	details?: any
+	details?: unknown
 }
 
 class ApiClient {
@@ -48,7 +84,11 @@ class ApiClient {
 
 	constructor() {
 		// URL backend сервера
-		this.baseUrl = 'http://localhost:8000'
+		const envBase = (import.meta as any).env?.VITE_API_BASE_URL as
+			| string
+			| undefined
+		this.baseUrl =
+			envBase && envBase.trim().length > 0 ? envBase : 'http://localhost:8000'
 	}
 
 	/**
@@ -111,7 +151,7 @@ class ApiClient {
 	/**
 	 * Получение списка всех шрифтов
 	 */
-	async getFonts(category?: string): Promise<any[]> {
+	async getFonts(category?: string): Promise<FontInfo[]> {
 		try {
 			const url = category
 				? `${this.baseUrl}/api/fonts?category=${encodeURIComponent(category)}`
@@ -133,7 +173,7 @@ class ApiClient {
 	/**
 	 * Получение информации о шрифте по ID
 	 */
-	async getFontById(fontId: number): Promise<any> {
+	async getFontById(fontId: number): Promise<FontInfo> {
 		try {
 			const response = await fetch(`${this.baseUrl}/api/fonts/${fontId}`)
 
@@ -154,7 +194,7 @@ class ApiClient {
 	/**
 	 * Поиск шрифтов по запросу
 	 */
-	async searchFonts(query: string): Promise<any[]> {
+	async searchFonts(query: string): Promise<FontInfo[]> {
 		try {
 			const response = await fetch(
 				`${this.baseUrl}/api/fonts/search/${encodeURIComponent(query)}`
@@ -205,4 +245,3 @@ class ApiClient {
 // Экспортируем единственный экземпляр
 export const apiClient = new ApiClient()
 export default apiClient
-

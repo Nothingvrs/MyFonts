@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ..models.font_models import FontInfo, FontCategory, FontCharacteristics, CyrillicFeatures
 from ..services.google_fonts_service import GoogleFontsService
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -19,36 +20,32 @@ class FontDatabase:
     def __init__(self):
         self.fonts: List[FontInfo] = []
         self.executor = ThreadPoolExecutor(max_workers=2)
-        self.google_fonts_service = GoogleFontsService(api_key="AIzaSyBGG0iqkjWIr8SlH8au0vQbmfojz7wtrKs")
+        self.google_fonts_service = GoogleFontsService(api_key=os.environ.get("GOOGLE_FONTS_API_KEY"))
         self._google_fonts_cache: List[FontInfo] = []
         self._initialize_fonts()
     
     async def initialize(self):
         """Асинхронная инициализация базы данных"""
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(self.executor, self._initialize_fonts)
-        
-        # Загружаем популярные Google Fonts с API ключом
         try:
-            logger.info("🚀 Загружаем Google Fonts с API ключом...")
-            google_fonts = await self.google_fonts_service.get_popular_fonts(limit=200)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(self.executor, self._initialize_fonts)
             
-            if google_fonts:
-                self._google_fonts_cache = google_fonts
-                logger.info(f"✅ Загружено {len(google_fonts)} Google Fonts")
-            else:
-                logger.warning("⚠️ Google Fonts API не вернул шрифты - используем локальные")
-                self._google_fonts_cache = []
-                self._add_popular_fonts_to_local_database()
-                
-        except Exception as e:
-            logger.error(f"❌ Ошибка загрузки Google Fonts: {str(e)}")
-            logger.info("🔄 Используем расширенную локальную базу")
+            # Временно отключаем загрузку Google Fonts для тестирования
+            logger.info("🔄 Пропускаем загрузку Google Fonts для тестирования")
             self._google_fonts_cache = []
-            self._add_popular_fonts_to_local_database()
-        
-        total_fonts = len(self.fonts) + len(self._google_fonts_cache)
-        logger.info(f"📚 База данных инициализирована: {len(self.fonts)} локальных + {len(self._google_fonts_cache)} Google Fonts = {total_fonts} всего")
+            
+            total_fonts = len(self.fonts)
+            logger.info(f"📚 База данных инициализирована: {len(self.fonts)} локальных шрифтов")
+            
+        except asyncio.CancelledError:
+            # Не считаем отмену фатальной — даём API подняться
+            logger.warning("Инициализация шрифтов отменена (reload)")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации базы данных: {str(e)}")
+            logger.info("🔄 Продолжаем работу с пустой базой")
+            self.fonts = []
+            self._google_fonts_cache = []
     
     def _initialize_fonts(self):
         """Инициализация базы данных шрифтов"""

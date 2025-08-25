@@ -11,6 +11,7 @@ from typing import List, Optional
 import logging
 import os
 from pathlib import Path
+import asyncio
 
 from .services.font_analyzer import FontAnalyzer
 from .services.font_matcher import FontMatcher
@@ -33,7 +34,14 @@ app = FastAPI(
 # Настройка CORS для работы с фронтендом
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # Vite и React dev серверы
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ],  # dev серверы (Vite/React)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,8 +61,15 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 async def startup_event():
     """Инициализация при запуске приложения"""
     logger.info("Запуск MyFonts API...")
-    await font_database.initialize()
-    logger.info("База данных шрифтов инициализирована")
+    try:
+        await font_database.initialize()
+        logger.info("База данных шрифтов инициализирована")
+    except asyncio.CancelledError:
+        # Перезагрузка uvicorn/моделей может отменить startup — не считаем это фатальной ошибкой
+        logger.warning("Инициализация базы шрифтов отменена (reload), продолжаем без ожидания")
+    except Exception as e:
+        logger.warning(f"База данных шрифтов не инициализирована: {str(e)}")
+        logger.info("Продолжаем работу без базы данных шрифтов")
 
 
 @app.on_event("shutdown")

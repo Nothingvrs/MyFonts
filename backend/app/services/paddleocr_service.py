@@ -196,11 +196,11 @@ class PaddleOCRService:
             logger.error(f"💡 Тип ошибки: {type(e).__name__}")
             self.ocr = None
     
-    async def analyze_image(self, image: np.ndarray) -> Dict[str, Any]:
+    async def analyze_image(self, image: np.ndarray, sensitivity: Optional[str] = None) -> Dict[str, Any]:
         """Алиас для обратной совместимости"""
-        return await self.detect_and_analyze_text(image)
+        return await self.detect_and_analyze_text(image, sensitivity=sensitivity)
     
-    async def detect_and_analyze_text(self, image: np.ndarray) -> Dict[str, Any]:
+    async def detect_and_analyze_text(self, image: np.ndarray, sensitivity: Optional[str] = None) -> Dict[str, Any]:
         """Детекция и анализ текста на изображении"""
         print("🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: detect_and_analyze_text НАЧАЛСЯ")
         logger.info("🚀 === НАЧАЛО detect_and_analyze_text ===")
@@ -251,20 +251,14 @@ class PaddleOCRService:
             }
     
     def _get_loose_ocr(self):
-        """Ленивая инициализация второго OCR с пониженным drop_score для слабого текста."""
+        """Возвращает основной OCR вместо создания второго экземпляра.
+        На некоторых окружениях создание второго объекта может приводить к
+        загрузке дополнительных doc-моделей и значительным задержкам.
+        """
         if not PADDLEOCR_AVAILABLE:
             return None
-        if self.ocr_loose is not None:
-            return self.ocr_loose
-        try:
-            cfg = {'lang': 'ru', 'use_angle_cls': True}
-            logger.info("🔄 Инициализируем 'loose' OCR с базовой конфигурацией")
-            self.ocr_loose = PaddleOCR(**cfg)
-            logger.info("✅ 'loose' OCR инициализирован")
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось создать 'loose' OCR: {str(e)}")
-            self.ocr_loose = None
-        return self.ocr_loose
+        # Используем уже инициализированный основной OCR
+        return self.ocr
 
     def _create_image_variants(self, image: np.ndarray) -> List[np.ndarray]:
         """Создание 10 самых эффективных вариантов изображения для агрессивного поиска текста"""
@@ -548,16 +542,16 @@ class PaddleOCRService:
                     logger.warning(f"⚠️ Ошибка обработки варианта #{i+1}: {str(e)}")
                     continue
             
-            # ДОПОЛНИТЕЛЬНЫЙ ПРОХОД: горизонтальные полосы с чёрным текстом (после no-red)
-            try:
-                extra_texts, extra_bboxes, extra_confs = self._detect_black_text_lines(image)
-                for txt, bb, cf in zip(extra_texts, extra_bboxes, extra_confs):
-                    all_texts.append(txt)
-                    all_bboxes.append(bb)
-                    all_confidences.append(cf)
-                logger.info(f"➕ Extra pass (dark lines): добавлено {len(extra_texts)} строк")
-            except Exception as extra_err:
-                logger.warning(f"⚠️ Extra pass (dark lines) ошибка: {str(extra_err)}")
+            # ДОПОЛНИТЕЛЬНЫЙ ПРОХОД временно отключён для ускорения первого ответа
+            # try:
+            #     extra_texts, extra_bboxes, extra_confs = self._detect_black_text_lines(image)
+            #     for txt, bb, cf in zip(extra_texts, extra_bboxes, extra_confs):
+            #         all_texts.append(txt)
+            #         all_bboxes.append(bb)
+            #         all_confidences.append(cf)
+            #     logger.info(f"➕ Extra pass (dark lines): добавлено {len(extra_texts)} строк")
+            # except Exception as extra_err:
+            #     logger.warning(f"⚠️ Extra pass (dark lines) ошибка: {str(extra_err)}")
 
             # Убираем дубликаты, оставляя лучшую уверенность для каждого уникального текста
             unique_texts = {}
@@ -674,21 +668,32 @@ class PaddleOCRService:
                 text = region.get('text', '')
                 logger.info(f"Область #{i+1}: '{text}' confidence={conf:.3f}, проходит порог={conf >= quality_config['min_confidence']}")
             
-            # Более мягкая проверка качества (разрешаем низкую уверенность при наличии хотя бы одного региона)
-            has_text = (cond4 and (cond1 or cond2))
+            # Жесткая проверка наличия текста: должны сойтись базовые условия И достаточное количество букв
+            # Опираемся на конфиг качества
+            try:
+                min_letters = int(quality_config.get('min_letters_count', 3))
+            except Exception:
+                min_letters = 3
+            letters_count = sum(1 for c in clean_text if c.isalpha())
+            has_text = cond4 and cond1 and cond2 and cond3 and letters_count >= min_letters
             
             logger.info(f"ИТОГОВЫЙ РЕЗУЛЬТАТ has_text = {has_text}")
             
             logger.info(f"🔍 Проверка качества: всего областей={len(text_regions)}, валидных={len(valid_regions)}")
             logger.info(f"📝 Чистый текст: '{clean_text[:50]}' (длина: {len(clean_text)})")
             logger.info(f"📊 Средняя уверенность: {avg_confidence:.2f}")
-            logger.info(f"✅ Результат проверки: has_text={has_text}")
+            logger.info(f"✅ Результат проверки: has_text={has_text} (letters={letters_count})")
             
             # ДЕТАЛЬНАЯ ДИАГНОСТИКА МНОЖЕСТВЕННЫХ ШРИФТОВ
             print(f"🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: === ДИАГНОСТИКА МНОЖЕСТВЕННЫХ ШРИФТОВ ===")
             print(f"🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: Анализируем {len(text_regions)} областей текста...")
             
             # Определяем множественные шрифты
+            # Читаем конфиг чувствительности
+            try:
+                cfg = get_multiple_fonts_config(mode=sensitivity) if sensitivity else get_multiple_fonts_config()
+            except Exception:
+                cfg = get_multiple_fonts_config()
             multiple_fonts = self._detect_multiple_fonts_from_regions(text_regions)
             
             print(f"🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: Результат анализа множественных шрифтов: {multiple_fonts}")
@@ -972,7 +977,12 @@ class PaddleOCRService:
                     'width': 0,
                     'height': 0,
                     'area': 0,
-                    'font_size_estimate': 0
+                    'font_size_estimate': 0,
+                    'region': region,
+                    'x_min': x_min,
+                    'y_min': y_min,
+                    'x_max': x_max,
+                    'y_max': y_max
                 }
             
             # Базовые характеристики области
@@ -989,7 +999,11 @@ class PaddleOCRService:
                 'height': height,
                 'area': area,
                 'font_size_estimate': font_size_estimate,
-                'region': region
+                'region': region,
+                'x_min': x_min,
+                'y_min': y_min,
+                'x_max': x_max,
+                'y_max': y_max
             }
             
         except Exception as e:
@@ -1001,7 +1015,11 @@ class PaddleOCRService:
                 'width': 0,
                 'height': 0,
                 'area': 0,
-                'font_size_estimate': 0
+                'font_size_estimate': 0,
+                'x_min': 0,
+                'y_min': 0,
+                'x_max': 0,
+                'y_max': 0
             }
     
     def _detect_multiple_fonts_from_regions(self, text_regions: List[Dict]) -> bool:
@@ -1026,7 +1044,7 @@ class PaddleOCRService:
                 if len(txt) >= 2 and conf >= 0.7 and h > 8 and w > 8:
                     filtered.append(r)
             logger.info(f"После фильтрации осталось регионов: {len(filtered)}")
-            if len(filtered) < max(5, cfg.get('min_regions_count', 4)):
+            if len(filtered) < max(5, int(cfg.get('min_regions_count', 4))):
                 logger.info("Данных мало после фильтрации — один шрифт")
                 return False
 
@@ -1059,7 +1077,7 @@ class PaddleOCRService:
             in_band = np.logical_and(heights_arr >= 0.7 * median_h, heights_arr <= 1.3 * median_h)
             frac_in_band = float(np.sum(in_band)) / float(len(heights_arr))
             logger.info(f"Доля высот в [0.7..1.3] от медианы: {frac_in_band:.2f}")
-            likely_one_font = frac_in_band >= 0.75  # только как мягкий сигнал, не выходим раньше времени
+            likely_one_font = frac_in_band >= float(cfg.get('in_band_frac', 0.75))
 
             # Робастная дисперсия (MAD)
             mad = float(np.median(np.abs(heights_arr - median_h)) + 1e-6)
@@ -1068,7 +1086,7 @@ class PaddleOCRService:
             logger.info(f"Robust variation = {height_variation:.3f}")
 
             # Условие: большая вариация считает множественные шрифты
-            if height_variation > max(0.7, cfg.get('size_variation_threshold', 0.4) + 0.3):
+            if height_variation > max(0.7, float(cfg.get('size_variation_threshold', 0.4)) + 0.3):
                 logger.info("✅ Очень большая вариация высот — множественные шрифты")
                 return True
 
@@ -1077,16 +1095,17 @@ class PaddleOCRService:
             h_max = float(np.max(heights_arr))
             ratio = h_max / h_min if h_min > 0 else 1.0
             logger.info(f"Соотношение высот max/min: {ratio:.2f}")
-            if ratio > 2.0:
+            if ratio > float(cfg.get('height_ratio_threshold', 2.0)):
                 # Оценим поддержку кластеров через пороги от медианы
                 small = heights_arr <= 0.85 * median_h
                 large = heights_arr >= 1.15 * median_h
                 small_n = int(np.sum(small))
                 large_n = int(np.sum(large))
-                if small_n >= 3 and large_n >= 3:
+                min_per_cluster = int(cfg.get('min_regions_per_cluster', 3))
+                if small_n >= min_per_cluster and large_n >= min_per_cluster:
                     logger.info("✅ Два кластера по высоте с достаточной поддержкой")
                     # Доп. проверка: различие по яркости/плотности штрихов между кластерами
-                    def _cluster_metrics(mask: np.ndarray) -> Tuple[float, float]:
+                    def _cluster_metrics(mask: np.ndarray) -> Tuple[float, float, float]:
                         L_vals = []
                         densities = []
                         sats = []
@@ -1123,10 +1142,15 @@ class PaddleOCRService:
                     L_small, D_small, S_small = _cluster_metrics(small_mask)
                     L_large, D_large, S_large = _cluster_metrics(large_mask)
                     logger.info(f"Сравнение кластеров: L_diff={abs(L_large - L_small):.1f}, D_diff={abs(D_large - D_small):.2f}, S_diff={abs(S_large - S_small):.1f}")
-                    # Основания считать шрифты разными: различие по насыщенности (цвет/заливка),
-                    # или по плотности штрихов, или по яркости
-                    if abs(S_large - S_small) >= 20.0 or abs(D_large - D_small) >= 0.10 or abs(L_large - L_small) >= 12.0:
-                        logger.info("✅ Кластеры различаются по яркости/толщине — множественные шрифты")
+                    met_diff = 0
+                    if abs(S_large - S_small) >= float(cfg.get('saturation_diff_threshold', 20.0)):
+                        met_diff += 1
+                    if abs(D_large - D_small) >= float(cfg.get('density_diff_threshold', 0.12)):
+                        met_diff += 1
+                    if abs(L_large - L_small) >= float(cfg.get('brightness_diff_threshold', 12.0)):
+                        met_diff += 1
+                    if met_diff >= int(cfg.get('require_metric_count', 2)):
+                        logger.info("✅ Кластеры различаются по достаточному числу метрик — множественные шрифты")
                         return True
 
             # Площади как дополнительный критерий (более строгий порог)
@@ -1135,7 +1159,7 @@ class PaddleOCRService:
                 areas_arr = np.array(areas, dtype=float)
                 a_ratio = float(np.max(areas_arr)) / float(np.min(areas_arr)) if float(np.min(areas_arr)) > 0 else 1.0
                 logger.info(f"Соотношение площадей max/min: {a_ratio:.2f}")
-                if a_ratio > 3.5:
+                if a_ratio > float(cfg.get('area_ratio_threshold', 3.5)):
                     logger.info("✅ Очень разные площади — множественные шрифты")
                     return True
 
@@ -1172,7 +1196,7 @@ class PaddleOCRService:
                     h_ratio = max(a_h, b_h) / max(1.0, min(a_h, b_h))
                     d_diff = abs(a_d - b_d)
                     logger.info(f"Группы '{a_txt[:12]}...' vs '{b_txt[:12]}...': h_ratio={h_ratio:.2f}, d_diff={d_diff:.2f}")
-                    if h_ratio >= 2.0 or d_diff >= 0.12:
+                    if h_ratio >= float(cfg.get('height_ratio_threshold', 2.0)) or d_diff >= float(cfg.get('density_diff_threshold', 0.12)):
                         logger.info("✅ Различие между самыми частыми строками — множественные шрифты")
                         return True
             except Exception:

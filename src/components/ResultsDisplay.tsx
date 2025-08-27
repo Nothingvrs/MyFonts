@@ -18,20 +18,25 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 
 		if (fontNames.length === 0) return
 
-		// Формируем URL для Google Fonts API
-		const fontQuery = fontNames.map(name => name.replace(/\s+/g, '+')).join('|')
-
-		const link = document.createElement('link')
-		link.href = `https://fonts.googleapis.com/css2?family=${fontQuery}&display=swap`
-		link.rel = 'stylesheet'
-		link.setAttribute('data-font-loader', 'true')
-		document.head.appendChild(link)
+		// Подключаем только Google‑семейства
+		const googleFamilies = fontNames.map(name => name.replace(/\s+/g, '+'))
+		if (googleFamilies.length > 0) {
+			const link = document.createElement('link')
+			link.href = `https://fonts.googleapis.com/css2?family=${googleFamilies.join(
+				'|'
+			)}&display=swap`
+			link.rel = 'stylesheet'
+			link.setAttribute('data-font-loader', 'true')
+			document.head.appendChild(link)
+		}
 	}
 
 	// Загружаем шрифты при изменении результатов
 	useEffect(() => {
 		if (results.length > 0) {
-			const fontNames = results.map(result => result.name)
+			const fontNames = results
+				.filter(r => r.font_info?.download_url?.includes('fonts.google.com'))
+				.map(result => result.name)
 			loadGoogleFonts(fontNames)
 		}
 	}, [results])
@@ -242,62 +247,34 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 							</div>
 						</div>
 
-						<div className='bg-gray-50 rounded-lg p-4 mb-4 text-center'>
+						<div className='bg-white rounded-lg p-4 mb-4 text-center border border-gray-200'>
 							<p className='text-sm text-gray-600 mb-2'>Пример кириллицы:</p>
 							<div
-								className='font-preview text-lg text-gray-800 leading-tight'
-								style={{ fontFamily: `'${result.name}', serif` }}
-								title='АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдеёжзийклмнопрстуфхцчшщъыьэюя'
+								className='font-preview text-[22px] text-gray-800 leading-tight tracking-wide whitespace-pre-line break-words'
+								style={{
+									fontFamily: `'${result.name}', ${
+										result.font_info?.category === 'serif'
+											? 'serif'
+											: 'sans-serif'
+									}`,
+								}}
+								title='Аа Бб Вв Гг Дд Ее Ёё Жж Зз Ии Йй Кк Лл Мм Нн Оо Пп Рр Сс Тт Уу Фф Хх Цц Чч Шш Щщ Ъъ Ыы Ьь Ээ Юю Яя'
 							>
-								АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ
+								Съешь ещё этих мягких французских булок да выпей чаю
 							</div>
 						</div>
 
 						<div className='space-y-2'>
-							<div className='flex gap-2'>
+							<div className='flex flex-wrap gap-2'>
 								<a
-									href={`https://fonts.google.com/specimen/${result.name.replace(
-										/\s+/g,
-										'+'
+									href={`https://fonts.google.com/?query=${encodeURIComponent(
+										result.name
 									)}`}
 									target='_blank'
 									rel='noopener noreferrer'
 									className='btn-primary flex-1 text-sm py-2 text-center no-underline hover:no-underline'
 								>
-									Google Fonts
-								</a>
-								<a
-									href={`https://fonts.adobe.com/fonts/${result.name
-										.toLowerCase()
-										.replace(/\s+/g, '-')}`}
-									target='_blank'
-									rel='noopener noreferrer'
-									className='btn-secondary flex-1 text-sm py-2 text-center no-underline hover:no-underline'
-								>
-									Adobe Fonts
-								</a>
-							</div>
-							<div className='flex gap-2'>
-								<a
-									href={`https://www.fontsquirrel.com/fonts/${result.name
-										.toLowerCase()
-										.replace(/\s+/g, '-')}`}
-									target='_blank'
-									rel='noopener noreferrer'
-									className='btn-secondary flex-1 text-xs py-1.5 text-center no-underline hover:no-underline'
-								>
-									Font Squirrel
-								</a>
-								<a
-									href={`https://www.dafont.com/search.php?q=${result.name.replace(
-										/\s+/g,
-										'+'
-									)}`}
-									target='_blank'
-									rel='noopener noreferrer'
-									className='btn-secondary flex-1 text-xs py-1.5 text-center no-underline hover:no-underline'
-								>
-									DaFont
+									Искать на Google Fonts
 								</a>
 								<a
 									href={`https://www.myfonts.com/search/${result.name.replace(
@@ -306,9 +283,9 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
 									)}/fonts/`}
 									target='_blank'
 									rel='noopener noreferrer'
-									className='btn-secondary flex-1 text-xs py-1.5 text-center no-underline hover:no-underline'
+									className='btn-secondary flex-1 text-sm py-2 text-center no-underline hover:no-underline'
 								>
-									MyFonts
+									Искать на MyFonts
 								</a>
 							</div>
 						</div>

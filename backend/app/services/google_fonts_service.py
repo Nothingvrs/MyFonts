@@ -253,6 +253,11 @@ class GoogleFontsService:
             # Первые 50 - очень популярные, следующие 200 - популярные, остальные - средние/низкие
             popularity = 0.9 if font_id <= 50 else (0.7 if font_id <= 250 else 0.4)
             
+            # Формируем ссылку на страницу шрифта в Google Fonts
+            family = google_font["family"]
+            gf_family_path = family.replace(" ", "+")
+            download_url = f"https://fonts.google.com/specimen/{gf_family_path}"
+
             return FontInfo(
                 id=font_id,
                 name=google_font["family"],
@@ -264,7 +269,8 @@ class GoogleFontsService:
                 year=None,
                 foundry="Google Fonts",
                 description=f"Шрифт из коллекции Google Fonts, категория: {category.value}",
-                license="OFL"  # Большинство Google Fonts под OFL лицензией
+                license="OFL",  # Большинство Google Fonts под OFL лицензией
+                download_url=download_url
             )
             
         except Exception as e:

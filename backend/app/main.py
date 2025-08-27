@@ -3,7 +3,7 @@ MyFonts Backend API
 Определение кириллических шрифтов по изображениям
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -262,7 +262,10 @@ async def refresh_google_fonts():
 
 
 @app.post("/api/analyze-font", response_model=FontAnalysisResult)
-async def analyze_font(file: UploadFile = File(...)):
+async def analyze_font(
+    file: UploadFile = File(...),
+    sensitivity: Optional[str] = Form(None)
+):
     """
     Анализ шрифта по загруженному изображению
     """
@@ -279,9 +282,19 @@ async def analyze_font(file: UploadFile = File(...)):
         
         logger.info(f"📁 Получен файл: {file.filename}, размер: {len(contents)} байт")
         
+        # Нормализуем чувствительность, если передана
+        sens = None
+        try:
+            if sensitivity:
+                s = sensitivity.strip().lower()
+                if s in {"strict", "balanced", "relaxed"}:
+                    sens = s
+        except Exception:
+            sens = None
+
         # Анализируем изображение
         logger.info("🧠 Запускаем анализ изображения...")
-        characteristics = await font_analyzer.analyze_image(contents)
+        characteristics = await font_analyzer.analyze_image(contents, sensitivity=sens)
         logger.info("✅ Характеристики извлечены успешно")
         
         # Находим похожие шрифты (теперь асинхронно с полной базой Google Fonts)

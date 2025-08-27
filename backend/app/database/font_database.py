@@ -80,7 +80,8 @@ class FontDatabase:
                 year=1932,
                 foundry="Monotype",
                 description="Классический переходный антиквенный шрифт",
-                license="Commercial"
+                license="Commercial",
+                download_url="https://www.myfonts.com/fonts/microsoft/times-new-roman/"
             ),
             
             FontInfo(
@@ -113,7 +114,8 @@ class FontDatabase:
                 year=1982,
                 foundry="Monotype",
                 description="Неогротесковый шрифт без засечек",
-                license="Commercial"
+                license="Commercial",
+                download_url="https://learn.microsoft.com/typography/font-list/arial"
             ),
             
             FontInfo(
@@ -146,7 +148,8 @@ class FontDatabase:
                 year=2009,
                 foundry="ParaType",
                 description="Российский шрифт семейства PT, оптимизированный для кириллицы",
-                license="OFL"
+                license="OFL",
+                download_url="https://fonts.google.com/specimen/PT+Sans"
             ),
             
             FontInfo(
@@ -179,7 +182,8 @@ class FontDatabase:
                 year=2009,
                 foundry="ParaType",
                 description="Переходная антиква семейства PT для кириллицы",
-                license="OFL"
+                license="OFL",
+                download_url="https://fonts.google.com/specimen/PT+Serif"
             ),
             
             FontInfo(
@@ -245,7 +249,8 @@ class FontDatabase:
                 year=2011,
                 foundry="Ascender Corp",
                 description="Гуманистический гротеск с дружелюбным характером",
-                license="OFL"
+                license="OFL",
+                download_url="https://fonts.google.com/specimen/Open+Sans"
             ),
             
             FontInfo(
@@ -278,7 +283,8 @@ class FontDatabase:
                 year=2011,
                 foundry="Google",
                 description="Неогротеск, созданный для Android",
-                license="Apache 2.0"
+                license="Apache 2.0",
+                download_url="https://fonts.google.com/specimen/Roboto"
             ),
             
             FontInfo(

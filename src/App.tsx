@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import FontAnalyzer from './components/FontAnalyzer'
 import ImageUploader from './components/ImageUploader'
+import LottieScanner from './components/LottieScanner'
 import ResultsDisplay from './components/ResultsDisplay'
 
 interface FontMatch {
@@ -17,6 +18,12 @@ function App() {
 
 	const handleImageUpload = (file: File) => {
 		setUploadedImage(file)
+		setAnalysisResults([])
+		setErrorMessage(null)
+	}
+
+	const handleAnalysisStart = () => {
+		setIsAnalyzing(true)
 		setAnalysisResults([])
 		setErrorMessage(null)
 	}
@@ -46,31 +53,61 @@ function App() {
 			</header>
 
 			<main className='max-w-[1600px] mx-auto px-4 lg:px-8 xl:px-12 py-8'>
-				<ImageUploader onImageUpload={handleImageUpload} />
-
-				{uploadedImage && (
+				{!uploadedImage ? (
+					<ImageUploader onImageUpload={handleImageUpload} />
+				) : (
 					<div className='animate-fade-in'>
+						<div className='flex justify-end mb-4'>
+							<button
+								onClick={() => {
+									if (isAnalyzing) return
+									setUploadedImage(null)
+									setAnalysisResults([])
+									setErrorMessage(null)
+									setIsAnalyzing(false)
+								}}
+								disabled={isAnalyzing}
+								className={`text-sm px-4 py-2 rounded-lg font-medium ${
+									isAnalyzing
+										? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+										: 'btn-secondary'
+								}`}
+							>
+								{isAnalyzing
+									? 'Анализ выполняется…'
+									: 'Загрузить другое изображение'}
+							</button>
+						</div>
 						<FontAnalyzer
 							image={uploadedImage}
-							onAnalysisStart={() => setIsAnalyzing(true)}
+							onAnalysisStart={handleAnalysisStart}
 							onAnalysisComplete={handleAnalysisComplete}
 						/>
 					</div>
 				)}
 
+				{/* Во время анализа показываем Lottie над будущими результатами */}
 				{isAnalyzing && (
-					<div className='card text-center my-8 animate-pulse'>
-						<div className='flex items-center justify-center gap-3'>
-							<div className='w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin'></div>
-							<p className='text-lg font-medium text-gray-700'>
-								Анализируем изображение...
-							</p>
-						</div>
+					<div className='animate-fade-in mt-6'>
+						{(() => {
+							const base = (import.meta as any).env?.BASE_URL || '/'
+							const lottieSrc = `${base.replace(
+								/\/$/,
+								'/'
+							)}lottie/robot-scan.json`
+							return (
+								<LottieScanner
+									playing={true}
+									className='w-full'
+									src={lottieSrc}
+								/>
+							)
+						})()}
 					</div>
 				)}
 
 				{(analysisResults.length > 0 || errorMessage) && (
-					<div className='animate-slide-up'>
+					<div className='animate-slide-up mt-6'>
 						<ResultsDisplay
 							results={analysisResults}
 							errorMessage={errorMessage}

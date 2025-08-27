@@ -94,7 +94,10 @@ class ApiClient {
 	/**
 	 * Анализ шрифта по изображению
 	 */
-	async analyzeFont(imageFile: File): Promise<AnalysisResult> {
+	async analyzeFont(
+		imageFile: File,
+		timeoutMs?: number
+	): Promise<AnalysisResult> {
 		try {
 			console.log('Отправляем изображение на анализ...', {
 				name: imageFile.name,
@@ -105,10 +108,32 @@ class ApiClient {
 			const formData = new FormData()
 			formData.append('file', imageFile)
 
-			const response = await fetch(`${this.baseUrl}/api/analyze-font`, {
-				method: 'POST',
-				body: formData,
-			})
+			const envTimeout = Number(
+				(import.meta as any).env?.VITE_ANALYZE_TIMEOUT_MS
+			)
+			const effTimeout =
+				typeof timeoutMs === 'number'
+					? timeoutMs
+					: Number.isFinite(envTimeout) && envTimeout > 0
+					? envTimeout
+					: undefined
+			const controller = effTimeout ? new AbortSignal.constructor() : undefined
+			let response: Response
+			if (effTimeout) {
+				const ac = new AbortController()
+				const timer = setTimeout(() => ac.abort(), effTimeout)
+				response = await fetch(`${this.baseUrl}/api/analyze-font`, {
+					method: 'POST',
+					body: formData,
+					signal: ac.signal,
+				})
+				clearTimeout(timer)
+			} else {
+				response = await fetch(`${this.baseUrl}/api/analyze-font`, {
+					method: 'POST',
+					body: formData,
+				})
+			}
 
 			if (!response.ok) {
 				const errorData = await response.json().catch(() => ({}))
@@ -138,7 +163,15 @@ class ApiClient {
 			console.error('Ошибка при анализе шрифта:', error)
 
 			// Проверяем, связана ли ошибка с подключением к серверу
-			if (error instanceof TypeError && error.message.includes('fetch')) {
+			if (error instanceof DOMException && error.name === 'AbortError') {
+				throw new Error(
+					'Превышено время ожидания ответа от сервера. Попробуйте ещё раз или уменьшите размер изображения.'
+				)
+			}
+			if (
+				error instanceof TypeError &&
+				(error as any).message?.includes('fetch')
+			) {
 				throw new Error(
 					'Не удалось подключиться к серверу. Убедитесь, что backend запущен на http://localhost:8000'
 				)

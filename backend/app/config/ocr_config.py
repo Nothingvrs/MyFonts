@@ -1,6 +1,8 @@
 """
 Конфигурация PaddleOCR для настройки параметров детекции текста
 """
+import os
+from typing import Optional
 
 # Основные настройки PaddleOCR
 PADDLEOCR_CONFIG = {
@@ -24,10 +26,11 @@ PADDLEOCR_CONFIG = {
 
 # Настройки качества текста
 TEXT_QUALITY_CONFIG = {
-    'min_confidence': 0.05,          # Минимальная уверенность для отдельной области (максимально низко)
-    'min_text_length': 1,            # Минимальная длина текста (1 символ)
-    'min_avg_confidence': 0.05,      # Минимальная средняя уверенность (максимально низко)
-    'min_regions_count': 1,          # Минимальное количество регионов
+    'min_confidence': 0.25,          # Минимальная уверенность для отдельной области
+    'min_text_length': 3,            # Минимальная длина очищенного текста
+    'min_avg_confidence': 0.20,      # Минимальная средняя уверенность по всем регионам
+    'min_regions_count': 1,          # Минимум валидных регионов
+    'min_letters_count': 3,          # Минимум буквенных символов в тексте
 }
 
 # Настройки детекции множественных шрифтов
@@ -37,6 +40,53 @@ MULTIPLE_FONTS_CONFIG = {
     'min_regions_count': 4,              # Минимальное количество областей для множественных шрифтов
     'height_ratio_threshold': 2.0,       # Порог соотношения высот текста
     'min_size_groups': 2,                # Минимальное количество групп размеров
+}
+
+# Пресеты чувствительности детекции множественных шрифтов
+# Можно выбрать через переменную окружения MULTIPLE_FONTS_SENSITIVITY: strict | balanced | relaxed
+MULTIPLE_FONTS_SENSITIVITY_PRESETS = {
+    'strict': {
+        # Требуем более явные различия и больше данных
+        'min_regions_count': 6,
+        'min_regions_per_cluster': 4,
+        'min_lines_for_multi': 2,
+        'require_metric_count': 2,  # минимум 2 метрики должны различаться
+        'size_variation_threshold': 0.6,
+        'height_ratio_threshold': 2.2,
+        'area_ratio_threshold': 3.5,
+        'in_band_frac': 0.80,  # ранний признак одного шрифта
+        'density_diff_threshold': 0.14,
+        'saturation_diff_threshold': 24.0,
+        'brightness_diff_threshold': 14.0,
+    },
+    'balanced': {
+        # Значения по умолчанию (сбалансированные)
+        'min_regions_count': 5,
+        'min_regions_per_cluster': 3,
+        'min_lines_for_multi': 2,
+        'require_metric_count': 2,
+        'size_variation_threshold': 0.5,
+        'height_ratio_threshold': 2.0,
+        'area_ratio_threshold': 3.0,
+        'in_band_frac': 0.75,
+        'density_diff_threshold': 0.12,
+        'saturation_diff_threshold': 20.0,
+        'brightness_diff_threshold': 12.0,
+    },
+    'relaxed': {
+        # Более чувствительно, допускает меньше данных и слабее различия
+        'min_regions_count': 4,
+        'min_regions_per_cluster': 2,
+        'min_lines_for_multi': 2,
+        'require_metric_count': 1,
+        'size_variation_threshold': 0.4,
+        'height_ratio_threshold': 1.8,
+        'area_ratio_threshold': 2.5,
+        'in_band_frac': 0.70,
+        'density_diff_threshold': 0.10,
+        'saturation_diff_threshold': 16.0,
+        'brightness_diff_threshold': 10.0,
+    },
 }
 
 # Настройки предобработки изображений
@@ -103,9 +153,23 @@ def get_text_quality_config():
     """Получение конфигурации качества текста"""
     return TEXT_QUALITY_CONFIG.copy()
 
-def get_multiple_fonts_config():
-    """Получение конфигурации детекции множественных шрифтов"""
-    return MULTIPLE_FONTS_CONFIG.copy()
+def get_multiple_fonts_config(mode: Optional[str] = None):
+    """Получение конфигурации детекции множественных шрифтов
+
+    Приоритет выбора чувствительности:
+    1) Аргумент mode (strict|balanced|relaxed)
+    2) Переменная окружения MULTIPLE_FONTS_SENSITIVITY
+    3) balanced (по умолчанию)
+    """
+    base = MULTIPLE_FONTS_CONFIG.copy()
+    env_mode = (os.getenv('MULTIPLE_FONTS_SENSITIVITY') or '').strip().lower()
+    eff_mode = (mode or env_mode or 'strict').lower()
+    if eff_mode not in MULTIPLE_FONTS_SENSITIVITY_PRESETS:
+        eff_mode = 'balanced'
+    preset = MULTIPLE_FONTS_SENSITIVITY_PRESETS[eff_mode]
+    # Сливаем пресет поверх базовой конфигурации
+    merged = base | preset  # Python 3.9+: объединение словарей
+    return merged
 
 def get_preprocessing_config():
     """Получение конфигурации предобработки изображений"""

@@ -12,11 +12,12 @@ const FontAnalyzer: React.FC<FontAnalyzerProps> = ({
 	onAnalysisStart,
 	onAnalysisComplete,
 }) => {
-	const [imageUrl, setImageUrl] = useState<string>('')
+	const [imageUrl, setImageUrl] = useState<string | null>(null)
 	const [isServerConnected, setIsServerConnected] = useState<boolean | null>(
 		null
 	)
 	const [connectionError, setConnectionError] = useState<string>('')
+	const [isPending, setIsPending] = useState<boolean>(false)
 
 	useEffect(() => {
 		// Создаем URL для отображения изображения
@@ -54,6 +55,7 @@ const FontAnalyzer: React.FC<FontAnalyzerProps> = ({
 	}, [image])
 
 	const analyzeImage = async () => {
+		if (isPending) return
 		if (isServerConnected === null) {
 			console.warn('Проверка подключения к серверу еще не завершена')
 			return
@@ -67,6 +69,7 @@ const FontAnalyzer: React.FC<FontAnalyzerProps> = ({
 		}
 
 		onAnalysisStart()
+		setIsPending(true)
 
 		try {
 			console.log('Отправляем изображение на backend для анализа...')
@@ -79,24 +82,17 @@ const FontAnalyzer: React.FC<FontAnalyzerProps> = ({
 			if (result.success) {
 				onAnalysisComplete(result.matches)
 			} else {
-				// Если анализ не удался (например, текст не найден)
-				console.log(
-					'Backend не смог проанализировать изображение:',
-					result.message
-				)
-				console.log('🔍 Передаем ошибку в App:', {
-					message: result.message,
-					error: result.error,
-					success: result.success,
-				})
 				onAnalysisComplete([], result.message)
 			}
-		} catch (error) {
+		} catch (error: any) {
 			console.error('Ошибка при анализе через backend:', error)
-
-			// В случае ошибки показываем fallback данные
-			console.log('Используем mock данные как fallback')
-			generateMockResults()
+			const message =
+				typeof error?.message === 'string'
+					? error.message
+					: 'Техническая ошибка анализа'
+			onAnalysisComplete([], message)
+		} finally {
+			setIsPending(false)
 		}
 	}
 
@@ -122,11 +118,13 @@ const FontAnalyzer: React.FC<FontAnalyzerProps> = ({
 				<h3 className='text-xl font-semibold text-gray-800 mb-6'>
 					Загруженное изображение:
 				</h3>
-				<img
-					src={imageUrl}
-					alt='Uploaded'
-					className='max-w-full max-h-96 lg:max-h-[500px] xl:max-h-[600px] mx-auto rounded-lg shadow-md mb-6 object-contain'
-				/>
+				{imageUrl && (
+					<img
+						src={imageUrl}
+						alt='Uploaded'
+						className='max-w-full max-h-96 lg:max-h-[500px] xl:max-h-[600px] mx-auto rounded-lg shadow-md mb-6 object-contain'
+					/>
+				)}
 				{/* Показываем статус подключения к серверу */}
 				{isServerConnected === null && (
 					<div className='mb-4 p-3 bg-blue-100 border border-blue-300 rounded-lg'>
@@ -163,18 +161,27 @@ const FontAnalyzer: React.FC<FontAnalyzerProps> = ({
 
 				<button
 					onClick={analyzeImage}
-					disabled={isServerConnected === null}
+					disabled={!isServerConnected || isPending}
 					className={`text-lg px-8 py-3 ${
-						isServerConnected !== null
+						isServerConnected && !isPending
 							? 'btn-primary'
 							: 'bg-gray-400 text-white cursor-not-allowed rounded-lg font-semibold'
 					}`}
 				>
-					{isServerConnected === null
-						? 'Проверяем сервер...'
-						: isServerConnected
-						? '🔬 Анализировать шрифт (AI)'
-						: '📝 Анализировать шрифт (демо)'}
+					{isServerConnected ? (
+						isPending ? (
+							<span className='inline-flex items-center gap-2'>
+								<span className='w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin'></span>
+								<span>
+									Анализируем изображение. Дождитесь окончания анализа…
+								</span>
+							</span>
+						) : (
+							'🔬 Анализировать шрифт (AI)'
+						)
+					) : (
+						'Проверяем сервер...'
+					)}
 				</button>
 			</div>
 		</div>

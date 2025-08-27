@@ -30,11 +30,11 @@ class FontAnalyzer:
         else:
             logger.error("❌ FontAnalyzer: PaddleOCR не инициализирован - анализ шрифтов невозможен")
         
-    async def analyze_image(self, image_bytes: bytes) -> FontCharacteristics:
+    async def analyze_image(self, image_bytes: bytes, sensitivity: str | None = None) -> FontCharacteristics:
         """Анализ изображения для определения характеристик шрифта"""
-        return await self._analyze_image_async(image_bytes)
+        return await self._analyze_image_async(image_bytes, sensitivity)
     
-    async def _analyze_image_async(self, image_bytes: bytes) -> FontCharacteristics:
+    async def _analyze_image_async(self, image_bytes: bytes, sensitivity: str | None = None) -> FontCharacteristics:
         """Асинхронный анализ изображения ТОЛЬКО через PaddleOCR"""
         print("🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: _analyze_image_async НАЧАЛСЯ")
         logger.info("🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: _analyze_image_async НАЧАЛСЯ")
@@ -60,7 +60,7 @@ class FontAnalyzer:
             logger.info("=== ШАГ 1: УЛУЧШЕННОЕ определение наличия текста через PaddleOCR ===")
             print("🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: Вызываем PaddleOCR.analyze_image()")
             logger.info("🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: Вызываем PaddleOCR.analyze_image()")
-            ocr_result = await self.paddleocr_service.analyze_image(image)
+            ocr_result = await self.paddleocr_service.analyze_image(image, sensitivity=sensitivity)
             print(f"🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: PaddleOCR вернул: {type(ocr_result)}")
             logger.info(f"🚀 ПРИНУДИТЕЛЬНЫЙ ВЫВОД: PaddleOCR вернул: {type(ocr_result)}")
             
@@ -167,11 +167,14 @@ class FontAnalyzer:
                 }
             
             # 3. Проверка качества распознавания
-            if confidence < 0.05:  # Еще больше понижаем порог
+            from ..config.ocr_config import get_text_quality_config
+            qcfg = get_text_quality_config()
+            min_avg = float(qcfg.get('min_avg_confidence', 0.2))
+            if confidence < min_avg:
                 return {
                     'is_valid': False,
                     'reason': 'Качество распознавания текста слишком низкое',
-                    'details': f'Уверенность OCR: {confidence:.2f} (минимум: 0.05)'
+                    'details': f'Уверенность OCR: {confidence:.2f} (минимум: {min_avg:.2f})'
                 }
             
             # 4. Проверка количества текстовых регионов
@@ -191,7 +194,7 @@ class FontAnalyzer:
                 if region_conf >= 0.05 and len(region_text) >= 1:  # Еще больше понижаем порог
                     valid_regions += 1
             
-            if valid_regions < 1:
+            if valid_regions < int(qcfg.get('min_regions_count', 1)):
                 return {
                     'is_valid': False,
                     'reason': 'Ни одна область текста не прошла проверку качества',
@@ -201,7 +204,7 @@ class FontAnalyzer:
             # 6. Проверка на осмысленность текста
             # Убираем специальные символы и проверяем что остались буквы/цифры
             clean_text = ''.join(c for c in text_content if c.isalnum() or c.isspace()).strip()
-            if len(clean_text) < 1:  # Понижаем требование до 1 символа
+            if len(clean_text) < int(qcfg.get('min_text_length', 3)):
                 return {
                     'is_valid': False,
                     'reason': 'Текст не содержит читаемых символов',
@@ -211,11 +214,12 @@ class FontAnalyzer:
             # 7. Проверка на минимальное количество букв или цифр
             letter_count = sum(1 for c in text_content if c.isalpha())
             digit_count = sum(1 for c in text_content if c.isdigit())
-            if letter_count < 1 and digit_count < 1:  # Разрешаем цифры
+            min_letters = int(qcfg.get('min_letters_count', 3))
+            if letter_count < min_letters and digit_count < 1:
                 return {
                     'is_valid': False,
-                    'reason': 'Текст не содержит букв или цифр',
-                    'details': f'Букв: {letter_count}, цифр: {digit_count}'
+                    'reason': 'Текст не содержит достаточного количества букв/цифр',
+                    'details': f'Букв: {letter_count} (мин: {min_letters}), цифр: {digit_count}'
                 }
             
             # 8. Предупреждение о кириллице (не блокируем)
